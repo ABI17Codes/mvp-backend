@@ -133,13 +133,17 @@ func Register(c fiber.Ctx) error {
 	user.Password = ""
 
 	secure := os.Getenv("APP_ENV") == "production"
+	sameSite := "Lax"
+	if secure {
+		sameSite = "None"
+	}
 
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
 		Value:    token,
 		HTTPOnly: true,
 		Secure:   secure,
-		SameSite: "Lax",
+		SameSite: sameSite,
 		MaxAge:   30 * 24 * 60 * 60,
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
 		Path:     "/",
@@ -210,13 +214,17 @@ func Login(c fiber.Ctx) error {
 	user.Password = ""
 
 	secure := os.Getenv("APP_ENV") == "production"
+	sameSite := "Lax"
+	if secure {
+		sameSite = "None"
+	}
 
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
 		Value:    token,
 		HTTPOnly: true,
 		Secure:   secure,
-		SameSite: "Lax",
+		SameSite: sameSite,
 		MaxAge:   30 * 24 * 60 * 60,
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
 		Path:     "/",
@@ -250,12 +258,18 @@ func Me(c fiber.Ctx) error {
 }
 
 func Logout(c fiber.Ctx) error {
+	secure := os.Getenv("APP_ENV") == "production"
+	sameSite := "Lax"
+	if secure {
+		sameSite = "None"
+	}
+
 	c.Cookie(&fiber.Cookie{
 		Name:     "access_token",
 		Value:    "",
 		HTTPOnly: true,
-		Secure:   os.Getenv("APP_ENV") == "production",
-		SameSite: "Lax",
+		Secure:   secure,
+		SameSite: sameSite,
 		MaxAge:   -1,
 		Path:     "/",
 	})
