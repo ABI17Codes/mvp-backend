@@ -1,0 +1,108 @@
+package main
+
+import (
+	"backend/db"
+	"backend/models"
+	"backend/routes"
+	"log"
+	"os"
+	"time"
+
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
+	"github.com/gofiber/fiber/v3/middleware/logger"
+	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/joho/godotenv"
+)
+
+func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	db.ConnectDB()
+
+	db.DB.AutoMigrate(
+		&models.User{},
+		&models.Store{},
+		&models.Product{},
+		&models.Category{},
+		&models.Address{},
+		&models.SEO{},
+		&models.Orders{},
+	)
+
+	db.SeedAdmin()
+
+	app := fiber.New()
+
+	app.Use(recover.New())
+
+	app.Use(logger.New())
+
+	// app.Use(logger.New(logger.Config{
+	// 	Format: "[${ip}] : ${port} ${status} - ${method} ${path}\n",
+	// }))
+
+	app.Use(requestid.New())
+	// app.Use(logger.New(logger.Config{
+	// 	Format: "${requestid} ${status} ${method} ${path}\n",
+	// }))
+
+	url := os.Getenv("FRONTEND_URL")
+
+	app.Use(limiter.New(limiter.Config{
+		Max:        100,
+		Expiration: time.Minute,
+
+		Next: func(c fiber.Ctx) bool {
+			return c.Path() == "/"
+		},
+	}))
+
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: []string{
+			url,
+		},
+		AllowCredentials: true,
+		AllowMethods: []string{
+			fiber.MethodGet,
+			fiber.MethodPost,
+			fiber.MethodPut,
+			fiber.MethodPatch,
+			fiber.MethodOptions,
+		},
+		AllowHeaders: []string{
+			"Origin",
+			"Content-Type",
+			"Accept",
+			"Authorization",
+		},
+	}))
+
+	apiv1 := app.Group("/api/v1")
+
+	routes.SetupRoutes(apiv1)
+
+	// Serve uploaded images as static files
+	app.Get("/uploads/*", func(c fiber.Ctx) error {
+		filePath := "." + c.Path()
+		return c.SendFile(filePath)
+	})
+
+	app.Get("/", func(c fiber.Ctx) error {
+		return c.SendString("Server running!")
+	})
+
+	port := os.Getenv("PORT")
+
+	if port != "" && port[0] != ':' {
+		port = ":" + port
+	}
+
+	log.Println("🚀 Server running on", port)
+	log.Fatal(app.Listen(port))
+
+}
