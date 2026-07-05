@@ -98,6 +98,14 @@ func CreateStore(c fiber.Ctx) error {
 		})
 	}
 
+	var nameCheck models.Store
+	if db.DB.Where("name = ?", storeReq.Name).First(&nameCheck).RowsAffected > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"success": false,
+			"message": "Store name is already in use",
+		})
+	}
+
 	storeCreation := models.Store{
 		UserID:        userID,
 		Name:          storeReq.Name,
@@ -168,6 +176,10 @@ func CreateStore(c fiber.Ctx) error {
 	}
 
 	secure := os.Getenv("APP_ENV") == "production"
+	sameSite := "Lax"
+	if secure {
+		sameSite = "None"
+	}
 
 	// Replace the old cookie
 	c.Cookie(&fiber.Cookie{
@@ -175,7 +187,7 @@ func CreateStore(c fiber.Ctx) error {
 		Value:    token,
 		HTTPOnly: true,
 		Secure:   secure,
-		SameSite: "Lax",
+		SameSite: sameSite,
 		Path:     "/",
 		MaxAge:   30 * 24 * 60 * 60,
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
@@ -236,7 +248,14 @@ func UpdateStore(c fiber.Ctx) error {
 		store.Slug = slug
 	}
 
-	if storeReq.Name != "" {
+	if storeReq.Name != "" && storeReq.Name != store.Name {
+		var nameCheck models.Store
+		if db.DB.Where("name = ? AND id <> ?", strings.TrimSpace(storeReq.Name), store.ID).First(&nameCheck).RowsAffected > 0 {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"success": false,
+				"message": "Store name is already in use by another store",
+			})
+		}
 		store.Name = strings.TrimSpace(storeReq.Name)
 	}
 	store.Description = strings.TrimSpace(storeReq.Description)
