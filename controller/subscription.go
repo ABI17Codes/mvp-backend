@@ -648,10 +648,13 @@ func AdminGetPlans(c fiber.Ctx) error {
 }
 
 type UpdatePlanInput struct {
+	Name          *string  `json:"name"`
 	Price         *float64 `json:"price"`
 	OfferPrice    *float64 `json:"offer_price"`
 	IsOfferActive *bool    `json:"is_offer_active"`
-	Description   string   `json:"description"`
+	Description   *string  `json:"description"`
+	DurationDay   *int     `json:"duration_day"`
+	IsActive      *bool    `json:"is_active"`
 }
 
 func AdminUpdatePlan(c fiber.Ctx) error {
@@ -671,6 +674,9 @@ func AdminUpdatePlan(c fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Plan not found"})
 	}
 
+	if input.Name != nil {
+		plan.Name = strings.ToLower(strings.TrimSpace(*input.Name))
+	}
 	if input.Price != nil {
 		plan.Price = *input.Price
 	}
@@ -680,7 +686,15 @@ func AdminUpdatePlan(c fiber.Ctx) error {
 	if input.IsOfferActive != nil {
 		plan.IsOfferActive = *input.IsOfferActive
 	}
-	plan.Description = strings.TrimSpace(input.Description)
+	if input.Description != nil {
+		plan.Description = strings.TrimSpace(*input.Description)
+	}
+	if input.DurationDay != nil {
+		plan.DurationDay = *input.DurationDay
+	}
+	if input.IsActive != nil {
+		plan.IsActive = *input.IsActive
+	}
 
 	if err := db.DB.Save(&plan).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to save plan details"})
