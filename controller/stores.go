@@ -4,6 +4,7 @@ import (
 	"backend/db"
 	"backend/models"
 	"backend/requests"
+	"backend/services"
 	"backend/utils"
 	"errors"
 	"os"
@@ -193,7 +194,17 @@ func CreateStore(c fiber.Ctx) error {
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
 	})
 
-	// return c.Status(201).JSON(storeReq)
+	populateStorePlan(&storeCreation)
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionCreateStore,
+		Resource:    services.ResourceStore,
+		ResourceID:  &storeCreation.ID,
+		Description: "Created store: " + storeCreation.Name + " with URL slug: " + storeCreation.Slug,
+		Success:     true,
+		Metadata:    fiber.Map{"name": storeCreation.Name, "slug": storeCreation.Slug},
+	})
+
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"success": true,
 		"message": "Store created successfully",
@@ -272,6 +283,22 @@ func UpdateStore(c fiber.Ctx) error {
 		store.BannerImages = storeReq.BannerImages
 	}
 	if storeReq.StoreTemplate != "" {
+		if storeReq.StoreTemplate == "growth" {
+			var sub models.Subscription
+			err := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, "active", time.Now()).Order("created_at desc").First(&sub).Error
+			isOnFree := false
+			if err != nil {
+				isOnFree = true
+			} else if sub.Plan.Name == "free" {
+				isOnFree = true
+			}
+			if isOnFree {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"success": false,
+					"message": "The Growth template is only available on premium plans. Please upgrade your subscription first.",
+				})
+			}
+		}
 		store.StoreTemplate = storeReq.StoreTemplate
 	}
 
@@ -282,6 +309,17 @@ func UpdateStore(c fiber.Ctx) error {
 			"error":   err.Error(),
 		})
 	}
+
+	populateStorePlan(&store)
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionUpdateStore,
+		Resource:    services.ResourceStore,
+		ResourceID:  &store.ID,
+		Description: "Updated store: " + store.Name,
+		Success:     true,
+		Metadata:    fiber.Map{"name": store.Name, "slug": store.Slug},
+	})
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
@@ -321,6 +359,15 @@ func GetStoreBySlug(c fiber.Ctx) error {
 		})
 	}
 
+	if store.IsSuspended {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"success": false,
+			"message": "This store has been temporarily suspended by the administrator",
+		})
+	}
+
+	populateStorePlan(&store)
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Store fetched successfully",
@@ -340,6 +387,10 @@ func GetAllStores(c fiber.Ctx) error {
 			"success": false,
 			"message": "Could not fetch stores",
 		})
+	}
+
+	for i := range stores {
+		populateStorePlan(&stores[i])
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -385,9 +436,200 @@ func GetMyStore(c fiber.Ctx) error {
 		})
 	}
 
+	populateStorePlan(&store)
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Store fetched successfully",
 		"data":    store,
 	})
+}
+
+type AdminUpdateStoreInput struct {
+	Name              string `json:"storeName"`
+	Slug              string `json:"slug"`
+	Number            string `json:"number"`
+	Description       string `json:"description"`
+	StoreTemplate     string `json:"storeTemplate"`
+	PlanName          string `json:"planName"`
+	IsSuspended       *bool  `json:"isSuspended"`
+	PauseSubscription *bool  `json:"pauseSubscription"`
+	ExtraOrderLimit   *int   `json:"extraOrderLimit"`
+}
+
+func AdminUpdateStore(c fiber.Ctx) error {
+	id := c.Params("id")
+	storeUUID, err := uuid.Parse(id)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid store ID format"})
+	}
+
+	input := new(AdminUpdateStoreInput)
+	if err := c.Bind().Body(input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid request body"})
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	input.Slug = strings.TrimSpace(input.Slug)
+	input.Number = strings.TrimSpace(input.Number)
+	input.Description = strings.TrimSpace(input.Description)
+	input.StoreTemplate = strings.TrimSpace(input.StoreTemplate)
+	input.PlanName = strings.ToLower(strings.TrimSpace(input.PlanName))
+
+	if input.Name == "" || input.Slug == "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{"success": false, "message": "Store name and Slug are required"})
+	}
+
+	var store models.Store
+	if err := db.DB.First(&store, "id = ?", storeUUID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Store not found"})
+	}
+
+	// Check slug conflict
+	var slugCheck models.Store
+	if db.DB.Where("slug = ? AND id <> ?", input.Slug, store.ID).First(&slugCheck).RowsAffected > 0 {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"success": false, "message": "Slug is already in use"})
+	}
+
+	tx := db.DB.Begin()
+
+	store.Name = input.Name
+	store.Slug = input.Slug
+	store.Number = input.Number
+	store.Description = input.Description
+	store.StoreTemplate = input.StoreTemplate
+	if input.IsSuspended != nil {
+		store.IsSuspended = *input.IsSuspended
+	}
+	if input.ExtraOrderLimit != nil {
+		store.ExtraOrderLimit = *input.ExtraOrderLimit
+	}
+
+	if err := tx.Save(&store).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to update store details"})
+	}
+
+	// Update Plan if provided
+	if input.PlanName != "" {
+		var plan models.Plan
+		if err := tx.Where("name = ?", input.PlanName).First(&plan).Error; err == nil {
+			var sub models.Subscription
+			errSub := tx.Where("store_id = ?", store.ID).First(&sub).Error
+			if errSub != nil {
+				if errors.Is(errSub, gorm.ErrRecordNotFound) {
+					sub = models.Subscription{
+						UserID:     store.UserID,
+						StoreID:    store.ID,
+						PlanID:     plan.ID,
+						Status:     models.SubscriptionActive,
+						StartDate:  time.Now(),
+						ExpiryDate: time.Now().AddDate(0, 0, plan.DurationDay),
+					}
+					tx.Create(&sub)
+				}
+			} else {
+				sub.PlanID = plan.ID
+				sub.Status = models.SubscriptionActive
+				sub.StartDate = time.Now()
+				sub.ExpiryDate = time.Now().AddDate(0, 0, plan.DurationDay)
+				tx.Save(&sub)
+			}
+		}
+	}
+
+	// Process pauseSubscription toggle
+	if input.PauseSubscription != nil {
+		var sub models.Subscription
+		if errSub := tx.Where("store_id = ?", store.ID).Order("created_at desc").First(&sub).Error; errSub == nil {
+			if *input.PauseSubscription {
+				sub.Status = models.SubscriptionSuspended
+			} else {
+				sub.Status = "active"
+			}
+			tx.Save(&sub)
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to commit store update"})
+	}
+
+	populateStorePlan(&store)
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionUpdateStore,
+		Resource:    services.ResourceStore,
+		ResourceID:  &store.ID,
+		Description: "Admin updated store profile for " + store.Name + " (Plan: " + store.Plan + ")",
+		Success:     true,
+		Metadata:    fiber.Map{"name": store.Name, "slug": store.Slug, "plan": store.Plan},
+	})
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Store updated successfully",
+		"data":    store,
+	})
+}
+
+func AdminDeleteStore(c fiber.Ctx) error {
+	id := c.Params("id")
+	storeUUID, err := uuid.Parse(id)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid store ID format"})
+	}
+
+	var store models.Store
+	if err := db.DB.First(&store, "id = ?", storeUUID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Store not found"})
+	}
+
+	tx := db.DB.Begin()
+
+	// Soft-delete matching store elements
+	tx.Where("store_id = ?", store.ID).Delete(&models.Product{})
+	tx.Where("store_id = ?", store.ID).Delete(&models.Category{})
+	tx.Where("store_id = ?", store.ID).Delete(&models.Orders{})
+	tx.Where("store_id = ?", store.ID).Delete(&models.Subscription{})
+	
+	if err := tx.Delete(&store).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Could not delete store"})
+	}
+
+	tx.Commit()
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionDeleteStore,
+		Resource:    services.ResourceStore,
+		ResourceID:  &store.ID,
+		Description: "Admin deleted store " + store.Name,
+		Success:     true,
+		Metadata:    fiber.Map{"name": store.Name, "slug": store.Slug},
+	})
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Store deleted successfully",
+	})
+}
+
+func populateStorePlan(store *models.Store) {
+	var sub models.Subscription
+	err := db.DB.Preload("Plan").Where("store_id = ?", store.ID).Order("created_at desc").First(&sub).Error
+	if err == nil {
+		store.SubscriptionStatus = sub.Status
+		store.SubscriptionExpiry = sub.ExpiryDate.Format(time.RFC3339)
+		if sub.Status == "active" {
+			store.Plan = sub.Plan.Name
+			store.PlanFeatures = sub.Plan.Features
+		} else {
+			store.Plan = "free"
+		}
+	} else {
+		store.SubscriptionStatus = "none"
+		store.SubscriptionExpiry = ""
+		store.Plan = "free"
+	}
 }

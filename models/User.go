@@ -9,8 +9,9 @@ const (
 
 type User struct {
 	BaseModel
-	Name     string `json:"name"`
-	Email    string `json:"email" gorm:"unique"`
-	Password string `json:"-"`
-	Role     string `json:"role" gorm:"default:customer"`
+	Name        string `json:"name"`
+	Email       string `json:"email" gorm:"unique"`
+	Password    string `json:"-"`
+	Role        string `json:"role" gorm:"default:customer"`
+	IsSuspended bool   `json:"isSuspended" gorm:"default:false"`
 }

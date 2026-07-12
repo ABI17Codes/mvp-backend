@@ -32,6 +32,11 @@ func main() {
 		&models.Address{},
 		&models.SEO{},
 		&models.Orders{},
+		&models.Plan{},
+		&models.Subscription{},
+		&models.Payment{},
+		&models.AuditLog{},
+		&models.Config{},
 	)
 
 	db.SeedAdmin()
@@ -106,3 +111,11 @@ func main() {
 	log.Fatal(app.Listen(port))
 
 }
+
+
+
+
+
+
+
+

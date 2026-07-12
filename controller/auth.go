@@ -3,6 +3,7 @@ package controller
 import (
 	"backend/db"
 	"backend/models"
+	"backend/services"
 	"backend/utils"
 	"log"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -149,6 +151,15 @@ func Register(c fiber.Ctx) error {
 		Path:     "/",
 	})
 
+	c.Locals("userID", user.ID.String())
+	services.Log(c, services.Activity{
+		Action:      services.ActionRegister,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "User registered account: " + user.Email,
+		Success:     true,
+	})
+
 	return c.Status(201).JSON(fiber.Map{
 		"success": true,
 		"message": "Account created successfully",
@@ -182,14 +193,21 @@ func Login(c fiber.Ctx) error {
 	if err := db.DB.Where("email = ?", input.Email).First(&user).Error; err != nil {
 		return c.Status(401).JSON(fiber.Map{
 			"success": false,
-			"error":   "Invalid email", // ✅ don't reveal if email exists
+			"error":   "Invalid email or password", // ✅ don't reveal if email exists
 		})
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
 		return c.Status(401).JSON(fiber.Map{
 			"success": false,
-			"error":   "Invalid password",
+			"error":   "Invalid email or password",
+		})
+	}
+
+	if user.IsSuspended {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"success": false,
+			"error":   "Your account has been suspended by the platform administrator.",
 		})
 	}
 
@@ -228,6 +246,15 @@ func Login(c fiber.Ctx) error {
 		MaxAge:   30 * 24 * 60 * 60,
 		Expires:  time.Now().Add(30 * 24 * time.Hour),
 		Path:     "/",
+	})
+
+	c.Locals("userID", user.ID.String())
+	services.Log(c, services.Activity{
+		Action:      services.ActionLogin,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "User logged in: " + user.Email,
+		Success:     true,
 	})
 
 	return c.JSON(fiber.Map{
@@ -273,6 +300,19 @@ func Logout(c fiber.Ctx) error {
 		MaxAge:   -1,
 		Path:     "/",
 	})
+
+	userIDStr, ok := c.Locals("userID").(string)
+	if ok && userIDStr != "" {
+		if uID, err := uuid.Parse(userIDStr); err == nil {
+			services.Log(c, services.Activity{
+				Action:      services.ActionLogout,
+				Resource:    services.ResourceUser,
+				ResourceID:  &uID,
+				Description: "User logged out",
+				Success:     true,
+			})
+		}
+	}
 
 	return c.JSON(fiber.Map{
 		"success": true,

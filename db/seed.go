@@ -2,9 +2,10 @@ package db
 
 import (
 	"backend/models"
-	"golang.org/x/crypto/bcrypt"
 	"log"
 	"os"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func SeedAdmin() {
@@ -39,7 +40,7 @@ func SeedAdmin() {
 	if err := DB.Create(&admin).Error; err != nil {
 		log.Fatal("❌ Could not seed admin:", err)
 	}
-	
+
 	log.Println("✅ Admin seeded successfully!")
 	log.Println("   Email   :", admin.Email)
 	log.Println("   Password:", admin.Password)

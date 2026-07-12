@@ -37,13 +37,17 @@ func SetupRoutes(router fiber.Router) {
 	storeBase.Post("/create", controller.CreateStore)
 
 	// Sub-group requiring storeowner role
-	store := storeBase.Group("/", utils.StoreownerOnly)
+	store := storeBase.Group("", utils.StoreownerOnly)
 	// Image upload endpoint for store owners
 	store.Post("/upload", controller.UploadImage) // POST /store/upload
 
 	store.Get("/me", controller.GetMyStore)
 	store.Put("/update", controller.UpdateStore)
 	// store.Post("/delete/:storeID", controller.CreateStore)
+
+	// subscription
+	store.Get("/subscription", controller.GetMySubscription)
+	store.Post("/subscription/upgrade", controller.UpgradeSubscription)
 
 	// orders
 	store.Post("/:storeID/order/create", controller.CreateOrder)
@@ -77,6 +81,8 @@ func SetupRoutes(router fiber.Router) {
 	store.Delete("/:storeID/category/:categoryID/delete", controller.DeleteCategory)
 
 	// Public store routes (no JWT required)
+	router.Get("/plans", controller.GetPlans)
+	router.Get("/config/upi", controller.GetUPIConfig)
 	publicStore := router.Group("/store-public")
 	publicStore.Get("/:slug", controller.GetStoreBySlug)
 	publicStore.Get("/:storeID/categories", controller.GetCategoriesPublic)
@@ -100,5 +106,24 @@ func SetupRoutes(router fiber.Router) {
 	admin.Put("/users/:id/role", controller.UpdateUserRole)
 	admin.Put("/users/:id/password", controller.UpdateUserPassword)
 	admin.Delete("/users/:id", controller.DeleteUser)
+	admin.Put("/users/:id", controller.UpdateUser)
+
+	// Admin Store Management routes
+	admin.Put("/stores/:id", controller.AdminUpdateStore)
+	admin.Delete("/stores/:id", controller.AdminDeleteStore)
+
+	// Payment requests verification
+	admin.Get("/payments", controller.AdminGetPayments)
+	admin.Post("/payments/:id/verify", controller.AdminVerifyPayment)
+
+	// Audit logs
+	admin.Get("/audit-logs", controller.AdminGetAuditLogs)
+
+	// Platform Config
+	admin.Put("/config/upi", controller.UpdateUPIConfig)
+
+	// Admin Plans Management routes
+	admin.Get("/plans", controller.AdminGetPlans)
+	admin.Put("/plans/:id", controller.AdminUpdatePlan)
 
 }

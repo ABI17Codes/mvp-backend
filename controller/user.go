@@ -3,6 +3,7 @@ package controller
 import (
 	"backend/db"
 	"backend/models"
+	"backend/services"
 	"strings"
 
 	"github.com/gofiber/fiber/v3"
@@ -112,6 +113,7 @@ func CreateUser(c fiber.Ctx) error {
 		Name:     input.Name,
 		Email:    input.Email,
 		Password: string(hashedPassword),
+		
 		Role:     role,
 	}
 
@@ -123,6 +125,15 @@ func CreateUser(c fiber.Ctx) error {
 	}
 
 	user.Password = ""
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionCreateUser,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "Admin created new user: " + user.Email + " with role: " + user.Role,
+		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email, "role": user.Role},
+	})
 
 	return c.Status(201).JSON(fiber.Map{
 		"success": true,
@@ -184,6 +195,15 @@ func UpdateUserRole(c fiber.Ctx) error {
 
 	user.Password = ""
 
+	services.Log(c, services.Activity{
+		Action:      services.ActionUpdateUserRole,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "Admin updated user role for " + user.Email + " to: " + user.Role,
+		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email, "new_role": user.Role},
+	})
+
 	return c.JSON(fiber.Map{
 		"success": true,
 		"message": "User role updated successfully",
@@ -216,6 +236,15 @@ func DeleteUser(c fiber.Ctx) error {
 			"error":   "Could not delete user",
 		})
 	}
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionDeleteUser,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "Admin deleted user: " + user.Email,
+		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email},
+	})
 
 	return c.JSON(fiber.Map{
 		"success": true,
@@ -278,8 +307,106 @@ func UpdateUserPassword(c fiber.Ctx) error {
 		})
 	}
 
+	services.Log(c, services.Activity{
+		Action:      services.ActionUpdateUserPass,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "Admin reset password for user: " + user.Email,
+		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email},
+	})
+
 	return c.JSON(fiber.Map{
 		"success": true,
 		"message": "User password reset successfully",
 	})
 }
+
+type UpdateUserInput struct {
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	IsSuspended *bool  `json:"isSuspended"`
+}
+
+func UpdateUser(c fiber.Ctx) error {
+	id := c.Params("id")
+	input := new(UpdateUserInput)
+
+	if err := c.Bind().Body(input); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"success": false,
+			"error":   "Invalid request body",
+		})
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Role = strings.TrimSpace(input.Role)
+
+	if input.Name == "" || input.Email == "" {
+		return c.Status(422).JSON(fiber.Map{
+			"success": false,
+			"error":   "Name and Email are required",
+		})
+	}
+
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", id).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"success": false,
+			"error":   "User not found",
+		})
+	}
+
+	if user.Role == models.RoleAdmin && input.Role != models.RoleAdmin {
+		return c.Status(403).JSON(fiber.Map{
+			"success": false,
+			"error":   "Cannot change the role of an admin user",
+		})
+	}
+
+	// Check if email is already in use by another user
+	var existing models.User
+	if err := db.DB.Where("email = ? AND id <> ?", input.Email, id).First(&existing).Error; err == nil {
+		return c.Status(409).JSON(fiber.Map{
+			"success": false,
+			"error":   "Email already in use",
+		})
+	}
+
+	oldRole := user.Role
+	user.Name = input.Name
+	user.Email = input.Email
+	if input.Role != "" {
+		user.Role = input.Role
+	}
+	if input.IsSuspended != nil {
+		user.IsSuspended = *input.IsSuspended
+	}
+
+	if err := db.DB.Save(&user).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"success": false,
+			"error":   "Could not update user details",
+		})
+	}
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionUpdateUserRole,
+		Resource:    services.ResourceUser,
+		ResourceID:  &user.ID,
+		Description: "Admin updated user details for " + user.Email,
+		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email, "role": user.Role, "old_role": oldRole},
+	})
+
+	user.Password = ""
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "User updated successfully",
+		"data":    user,
+	})
+}
+

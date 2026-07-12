@@ -4,7 +4,9 @@ import (
 	"backend/db"
 	"backend/models"
 	"backend/requests"
+	"backend/services"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -46,6 +48,21 @@ func CreateProduct(c fiber.Ctx) error {
 			"success": false,
 			"message": "Store not found for this user",
 		})
+	}
+
+	// Product Limit Check
+	var activeSub models.Subscription
+	if errSub := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, models.SubscriptionActive, time.Now()).Order("created_at desc").First(&activeSub).Error; errSub == nil {
+		if activeSub.Plan.ProductLimit > 0 {
+			var activeProductsCount int64
+			db.DB.Model(&models.Product{}).Where("store_id = ? AND is_active = ?", store.ID, true).Count(&activeProductsCount)
+			if activeProductsCount >= int64(activeSub.Plan.ProductLimit) {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"success": false,
+					"message": "Product limit reached for your current plan. Please upgrade to add more products.",
+				})
+			}
+		}
 	}
 
 	var productReq requests.CreateProductRequest
@@ -141,6 +158,15 @@ func CreateProduct(c fiber.Ctx) error {
 			"error":   err.Error(),
 		})
 	}
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionCreateProduct,
+		Resource:    services.ResourceProduct,
+		ResourceID:  &product.ID,
+		Description: "Created product: " + product.Name,
+		Success:     true,
+		Metadata:    fiber.Map{"name": product.Name, "price": product.Price},
+	})
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"success": true,
@@ -388,6 +414,15 @@ func UpdateProduct(c fiber.Ctx) error {
 		})
 	}
 
+	services.Log(c, services.Activity{
+		Action:      services.ActionUpdateProduct,
+		Resource:    services.ResourceProduct,
+		ResourceID:  &product.ID,
+		Description: "Updated product: " + product.Name,
+		Success:     true,
+		Metadata:    fiber.Map{"name": product.Name, "price": product.Price},
+	})
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Product Updated successfully",
@@ -448,6 +483,15 @@ func DeleteProduct(c fiber.Ctx) error {
 			"error":   err.Error(),
 		})
 	}
+
+	services.Log(c, services.Activity{
+		Action:      services.ActionDeleteProduct,
+		Resource:    services.ResourceProduct,
+		ResourceID:  &product.ID,
+		Description: "Deleted product: " + product.Name,
+		Success:     true,
+		Metadata:    fiber.Map{"name": product.Name},
+	})
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,

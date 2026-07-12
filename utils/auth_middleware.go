@@ -3,6 +3,7 @@ package utils
 import (
 	"strings"
 
+	"backend/db"
 	"backend/models"
 	"github.com/gofiber/fiber/v3"
 )
@@ -44,6 +45,17 @@ func JwtMiddleware(c fiber.Ctx) error {
 
 	c.Locals("userID", userID)
 	c.Locals("role", role)
+
+	// Check if user is suspended
+	var user models.User
+	if err := db.DB.First(&user, "id = ?", userID).Error; err == nil {
+		if user.IsSuspended {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"message": "Your account has been suspended by the platform administrator.",
+			})
+		}
+	}
 
 	return c.Next()
 }

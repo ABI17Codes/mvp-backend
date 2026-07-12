@@ -1,0 +1,6 @@
+*.exe
+tmp/
+uploads/
+test.png
+test.txt
+.env
