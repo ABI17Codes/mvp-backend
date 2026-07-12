@@ -40,6 +40,7 @@ const (
 	ResourceOrder        = "ORDER"
 	ResourceSubscription = "SUBSCRIPTION"
 	ResourcePayment      = "PAYMENT"
+	ResourceConfig       = "CONFIG"
 )
 
 type Activity struct {

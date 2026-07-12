@@ -28,11 +28,15 @@ type Store struct {
 	BannerImages  pq.StringArray `json:"bannerimages"   gorm:"type:text[]"`
 	Slug          string         `json:"slug"           gorm:"uniqueIndex;not null"`
 	StoreTemplate string         `json:"store_template" gorm:"type:varchar(50);default:'classic'"`
+	
 	Plan               string         `json:"plan"           gorm:"-"`
 	PlanFeatures       datatypes.JSON `json:"planFeatures"   gorm:"-"`
 	SubscriptionStatus string         `json:"subscriptionStatus" gorm:"-"`
 	SubscriptionExpiry string         `json:"subscriptionExpiry" gorm:"-"`
 	ExtraOrderLimit    int            `json:"extraOrderLimit" gorm:"default:0"`
 	ExtraOrdersExpiry  *time.Time     `json:"extraOrdersExpiry"`
+
+
+	IsActive bool `gorm:"default:true"`
 	IsSuspended   bool           `json:"isSuspended"    gorm:"default:false"`
 }

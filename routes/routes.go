@@ -126,5 +126,6 @@ func SetupRoutes(router fiber.Router) {
 	admin.Get("/plans", controller.AdminGetPlans)
 	admin.Post("/plans", controller.AdminCreatePlan)
 	admin.Put("/plans/:id", controller.AdminUpdatePlan)
+	admin.Delete("/plans/:id", controller.AdminDeletePlan)
 
 }

@@ -5,6 +5,7 @@ import (
 	"backend/models"
 	"backend/services"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -459,7 +460,13 @@ func AdminVerifyPayment(c fiber.Ctx) error {
 			if store.ExtraOrdersExpiry != nil && time.Now().After(*store.ExtraOrdersExpiry) {
 				store.ExtraOrderLimit = 0
 			}
-			store.ExtraOrderLimit += 1000 // Currently hardcoded to 1000
+			
+			// Dynamically add the order limit specified in the addon plan
+			limitToAdd := payReq.Plan.MonthlyOrderLimit
+			if limitToAdd <= 0 {
+				limitToAdd = 1000 // Fallback if not specified
+			}
+			store.ExtraOrderLimit += limitToAdd
 			
 			now := time.Now()
 			endOfMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
@@ -473,7 +480,7 @@ func AdminVerifyPayment(c fiber.Ctx) error {
 				})
 			}
 			auditAction = services.ActionPaymentApproved
-			auditDescription = "Approved manual payment for Extra Orders Add-on (+1000)"
+			auditDescription = fmt.Sprintf("Approved manual payment for Extra Orders Add-on (+%d)", limitToAdd)
 		} else {
 			var baseTime time.Time
 			var startDate time.Time
@@ -648,13 +655,14 @@ func AdminGetPlans(c fiber.Ctx) error {
 }
 
 type UpdatePlanInput struct {
-	Name          *string  `json:"name"`
-	Price         *float64 `json:"price"`
-	OfferPrice    *float64 `json:"offer_price"`
-	IsOfferActive *bool    `json:"is_offer_active"`
-	Description   *string  `json:"description"`
-	DurationDay   *int     `json:"duration_day"`
-	IsActive      *bool    `json:"is_active"`
+	Name              *string  `json:"name"`
+	Price             *float64 `json:"price"`
+	OfferPrice        *float64 `json:"offer_price"`
+	IsOfferActive     *bool    `json:"is_offer_active"`
+	Description       *string  `json:"description"`
+	DurationDay       *int     `json:"duration_day"`
+	IsActive          *bool    `json:"is_active"`
+	MonthlyOrderLimit *int     `json:"monthly_order_limit"`
 }
 
 func AdminUpdatePlan(c fiber.Ctx) error {
@@ -695,6 +703,9 @@ func AdminUpdatePlan(c fiber.Ctx) error {
 	if input.IsActive != nil {
 		plan.IsActive = *input.IsActive
 	}
+	if input.MonthlyOrderLimit != nil {
+		plan.MonthlyOrderLimit = *input.MonthlyOrderLimit
+	}
 
 	if err := db.DB.Save(&plan).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to save plan details"})
@@ -717,11 +728,13 @@ func AdminUpdatePlan(c fiber.Ctx) error {
 }
 
 type CreatePlanInput struct {
-	Name          string  `json:"name"`
-	Price         float64 `json:"price"`
-	OfferPrice    float64 `json:"offer_price"`
-	IsOfferActive bool    `json:"is_offer_active"`
-	Description   string  `json:"description"`
+	Name              string  `json:"name"`
+	Price             float64 `json:"price"`
+	OfferPrice        float64 `json:"offer_price"`
+	IsOfferActive     bool    `json:"is_offer_active"`
+	Description       string  `json:"description"`
+	DurationDay       int     `json:"duration_day"`
+	MonthlyOrderLimit int     `json:"monthly_order_limit"`
 }
 
 func AdminCreatePlan(c fiber.Ctx) error {
@@ -731,13 +744,18 @@ func AdminCreatePlan(c fiber.Ctx) error {
 	}
 
 	plan := models.Plan{
-		Name:          strings.ToLower(strings.TrimSpace(input.Name)),
-		Price:         input.Price,
-		OfferPrice:    input.OfferPrice,
-		IsOfferActive: input.IsOfferActive,
-		Description:   strings.TrimSpace(input.Description),
-		IsActive:      true,
-		DurationDay:   30, // Default to 30 days
+		Name:              strings.ToLower(strings.TrimSpace(input.Name)),
+		Price:             input.Price,
+		OfferPrice:        input.OfferPrice,
+		IsOfferActive:     input.IsOfferActive,
+		Description:       strings.TrimSpace(input.Description),
+		IsActive:          true,
+		DurationDay:       input.DurationDay,
+		MonthlyOrderLimit: input.MonthlyOrderLimit,
+	}
+
+	if plan.DurationDay <= 0 {
+		plan.DurationDay = 30 // Default to 30 days
 	}
 
 	if err := db.DB.Create(&plan).Error; err != nil {
@@ -757,5 +775,35 @@ func AdminCreatePlan(c fiber.Ctx) error {
 		"success": true,
 		"message": "Plan created successfully",
 		"data":    plan,
+	})
+}
+
+func AdminDeletePlan(c fiber.Ctx) error {
+	id := c.Params("id")
+	planUUID, err := uuid.Parse(id)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid plan ID format"})
+	}
+
+	var plan models.Plan
+	if err := db.DB.First(&plan, "id = ?", planUUID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Plan not found"})
+	}
+
+	if err := db.DB.Delete(&plan).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to delete plan"})
+	}
+
+	services.Log(c, services.Activity{
+		Action:      "PLAN_DELETED",
+		Resource:    services.ResourceConfig,
+		ResourceID:  &plan.ID,
+		Description: "Admin deleted pricing plan: " + plan.Name,
+		Success:     true,
+	})
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Plan deleted successfully",
 	})
 }

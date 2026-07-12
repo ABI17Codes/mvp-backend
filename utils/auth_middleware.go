@@ -1,11 +1,12 @@
 package utils
 
 import (
-	"strings"
 	"log"
+	"strings"
 
 	"backend/db"
 	"backend/models"
+
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -26,7 +27,6 @@ func JwtMiddleware(c fiber.Ctx) error {
 			"message": "Authentication required",
 		})
 	}
-	log.Println("COOKIE =", tokenStr)
 
 	claims, err := ValidateJWT(tokenStr)
 	if err != nil {

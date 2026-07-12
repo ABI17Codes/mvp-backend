@@ -34,6 +34,7 @@ func main() {
 		&models.Orders{},
 		&models.Plan{},
 		&models.Subscription{},
+		&models.SubscriptionUsage{},
 		&models.Payment{},
 		&models.AuditLog{},
 		&models.Config{},
