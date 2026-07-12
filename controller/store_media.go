@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -75,65 +74,55 @@ func UploadImage(c fiber.Ctx) error {
 		})
 	}
 
-	// Try Cloudinary first if configured
-	var cloudinaryUrl string
+	// Cloudinary upload
 	cld, err := cloudinary.New()
-	if err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		folderName := fmt.Sprintf("kadaitheru/%s", store.Slug)
-		safeName := fmt.Sprintf("%s_%s", uuid.New().String(), strings.TrimSuffix(filepath.Base(fileHeader.Filename), filepath.Ext(fileHeader.Filename)))
-		
-		file, err := fileHeader.Open()
-		if err == nil {
-			defer file.Close()
-			uploadResult, uploadErr := cld.Upload.Upload(ctx, file, uploader.UploadParams{
-				Folder:   folderName,
-				PublicID: safeName,
-			})
-
-			if uploadErr == nil && uploadResult.Error.Message == "" {
-				cloudinaryUrl = uploadResult.SecureURL
-			} else {
-				fmt.Printf("Cloudinary upload failed (falling back to local): %v\n", uploadResult.Error.Message)
-			}
-		}
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Cloudinary configuration error",
+			"error":   err.Error(),
+		})
 	}
 
-	var finalUrl string
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// If Cloudinary succeeded, use that URL. Otherwise, save locally.
-	if cloudinaryUrl != "" {
-		finalUrl = cloudinaryUrl
-	} else {
-		// Local Fallback
-		uploadDir := "./uploads/store_" + store.Slug
-		if err := os.MkdirAll(uploadDir, 0755); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"success": false,
-				"message": "Could not create upload directory",
-				"error":   err.Error(),
-			})
-		}
+	folderName := fmt.Sprintf("kadaitheru/%s", store.Slug)
+	safeName := fmt.Sprintf("%s_%s", uuid.New().String(), strings.TrimSuffix(filepath.Base(fileHeader.Filename), filepath.Ext(fileHeader.Filename)))
 
-		safeFileName := fmt.Sprintf("%s%s", uuid.New().String(), filepath.Ext(fileHeader.Filename))
-		savePath := filepath.Join(uploadDir, safeFileName)
+	file, err := fileHeader.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Could not read uploaded file",
+			"error":   err.Error(),
+		})
+	}
+	defer file.Close()
 
-		if err := c.SaveFile(fileHeader, savePath); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"success": false,
-				"message": "Could not save file locally",
-				"error":   err.Error(),
-			})
-		}
+	uploadResult, uploadErr := cld.Upload.Upload(ctx, file, uploader.UploadParams{
+		Folder:   folderName,
+		PublicID: safeName,
+	})
 
-		finalUrl = fmt.Sprintf("/uploads/store_%s/%s", store.Slug, safeFileName)
+	if uploadErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Cloudinary upload failed",
+			"error":   uploadErr.Error(),
+		})
+	}
+
+	if uploadResult.Error.Message != "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Cloudinary upload failed: " + uploadResult.Error.Message,
+		})
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"success": true,
 		"message": "Image uploaded successfully",
-		"url":     finalUrl,
+		"url":     uploadResult.SecureURL,
 	})
 }

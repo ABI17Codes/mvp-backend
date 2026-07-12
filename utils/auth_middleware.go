@@ -2,6 +2,7 @@ package utils
 
 import (
 	"strings"
+	"log"
 
 	"backend/db"
 	"backend/models"
@@ -25,14 +26,17 @@ func JwtMiddleware(c fiber.Ctx) error {
 			"message": "Authentication required",
 		})
 	}
+	log.Println("COOKIE =", tokenStr)
 
 	claims, err := ValidateJWT(tokenStr)
 	if err != nil {
+		log.Println("JWT ERROR =", err)
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"success": false,
 			"message": "Invalid or expired token",
 		})
 	}
+	log.Println("CLAIMS =", claims)
 	userID, ok := claims["userID"].(string)
 	if !ok || userID == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
