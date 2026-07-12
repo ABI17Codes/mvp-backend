@@ -701,3 +701,47 @@ func AdminUpdatePlan(c fiber.Ctx) error {
 		"data":    plan,
 	})
 }
+
+type CreatePlanInput struct {
+	Name          string  `json:"name"`
+	Price         float64 `json:"price"`
+	OfferPrice    float64 `json:"offer_price"`
+	IsOfferActive bool    `json:"is_offer_active"`
+	Description   string  `json:"description"`
+}
+
+func AdminCreatePlan(c fiber.Ctx) error {
+	input := new(CreatePlanInput)
+	if err := c.Bind().Body(input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false, "message": "Invalid request body"})
+	}
+
+	plan := models.Plan{
+		Name:          strings.ToLower(strings.TrimSpace(input.Name)),
+		Price:         input.Price,
+		OfferPrice:    input.OfferPrice,
+		IsOfferActive: input.IsOfferActive,
+		Description:   strings.TrimSpace(input.Description),
+		IsActive:      true,
+		DurationDay:   30, // Default to 30 days
+	}
+
+	if err := db.DB.Create(&plan).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to create plan"})
+	}
+
+	services.Log(c, services.Activity{
+		Action:      "CREATE_PLAN",
+		Resource:    "PLAN",
+		ResourceID:  &plan.ID,
+		Description: "Admin created a new plan: " + plan.Name,
+		Success:     true,
+		Metadata:    fiber.Map{"name": plan.Name, "price": plan.Price},
+	})
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Plan created successfully",
+		"data":    plan,
+	})
+}

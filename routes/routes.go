@@ -124,6 +124,7 @@ func SetupRoutes(router fiber.Router) {
 
 	// Admin Plans Management routes
 	admin.Get("/plans", controller.AdminGetPlans)
+	admin.Post("/plans", controller.AdminCreatePlan)
 	admin.Put("/plans/:id", controller.AdminUpdatePlan)
 
 }
