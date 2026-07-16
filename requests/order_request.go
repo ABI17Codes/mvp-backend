@@ -6,11 +6,16 @@ type CreateOrderRequest struct {
 	Number   string `json:"number" validate:"required"`
 	Address  string `json:"address" validate:"required"`
 
-	// Product details
-	ProductID   string `json:"productID" validate:"required"`
-	ProductName string `json:"productName" validate:"required"`
-	Price       int    `json:"price" validate:"required,min=1"`
-	Quantity    int    `json:"quantity" validate:"required,min=1"`
+	// Cart details
+	OrderItems     interface{} `json:"orderItems" validate:"required"` // Can be mapped to JSON
+	Subtotal       int         `json:"subtotal"`
+	DeliveryCharge int         `json:"deliveryCharge"`
+	TotalAmount    int         `json:"totalAmount" validate:"required"`
+
+	// Payment details
+	PaymentMethod      string `json:"paymentMethod"`
+	PaymentReference   string `json:"paymentReference"`
+	PaymentScreenshot  string `json:"paymentScreenshot"`
 
 	// Store
 	StoreID string `json:"storeID" validate:"required"`

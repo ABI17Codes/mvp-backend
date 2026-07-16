@@ -23,6 +23,14 @@ type Store struct {
 	Address []Address `json:"address" gorm:"foreignKey:storeID"`
 	SEO     SEO       `json:"seo" gorm:"foreignKey:storeID"`
 
+	DeliveryCharge float64 `json:"deliveryCharge" gorm:"default:0"`
+
+	UpiId   string    `json:"upiId"`
+	UpiName string    `json:"upiName"`
+
+	PrivacyPolicy   string `json:"privacyPolicy"   gorm:"type:text"`
+	TermsConditions string `json:"termsConditions" gorm:"type:text"`
+
 	Products      []Product      `json:"products" gorm:"foreignKey:storeID"`
 	Logo          pq.StringArray `json:"logo"           gorm:"type:text[]"`
 	BannerImages  pq.StringArray `json:"bannerimages"   gorm:"type:text[]"`

@@ -119,6 +119,8 @@ func CreateStore(c fiber.Ctx) error {
 		BannerImages:  storeReq.BannerImages,
 		Slug:          slug,
 		StoreTemplate: "classic",
+		UpiId:         storeReq.UpiId,
+		UpiName:       storeReq.UpiName,
 	}
 
 	tx := db.DB.Begin()
@@ -282,6 +284,13 @@ func UpdateStore(c fiber.Ctx) error {
 	if storeReq.BannerImages != nil {
 		store.BannerImages = storeReq.BannerImages
 	}
+	if storeReq.DeliveryCharge != nil {
+		store.DeliveryCharge = *storeReq.DeliveryCharge
+	}
+	store.UpiId = strings.TrimSpace(storeReq.UpiId)
+	store.UpiName = strings.TrimSpace(storeReq.UpiName)
+	store.PrivacyPolicy = strings.TrimSpace(storeReq.PrivacyPolicy)
+	store.TermsConditions = strings.TrimSpace(storeReq.TermsConditions)
 	if storeReq.StoreTemplate != "" {
 		if storeReq.StoreTemplate == "growth" {
 			var sub models.Subscription

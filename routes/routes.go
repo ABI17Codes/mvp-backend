@@ -87,6 +87,11 @@ func SetupRoutes(router fiber.Router) {
 	publicStore.Get("/:slug", controller.GetStoreBySlug)
 	publicStore.Get("/:storeID/categories", controller.GetCategoriesPublic)
 
+	// Public order and upload
+	router.Post("/upload", controller.PublicUploadImage)
+	router.Post("/public/store/:storeID/orders", controller.PublicCreateOrder)
+	router.Get("/public/orders/track/:orderNumber", controller.GetPublicOrderByOrderNumber)
+
 	// client admin page
 
 	// admin

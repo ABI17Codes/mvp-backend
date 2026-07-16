@@ -676,6 +676,7 @@ type UpdatePlanInput struct {
 	DurationDay       *int     `json:"duration_day"`
 	IsActive          *bool    `json:"is_active"`
 	MonthlyOrderLimit *int     `json:"monthly_order_limit"`
+	ProductLimit      *int     `json:"product_limit"`
 }
 
 func AdminUpdatePlan(c fiber.Ctx) error {
@@ -719,6 +720,9 @@ func AdminUpdatePlan(c fiber.Ctx) error {
 	if input.MonthlyOrderLimit != nil {
 		plan.MonthlyOrderLimit = *input.MonthlyOrderLimit
 	}
+	if input.ProductLimit != nil {
+		plan.ProductLimit = *input.ProductLimit
+	}
 
 	if err := db.DB.Save(&plan).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to save plan details"})
@@ -748,6 +752,7 @@ type CreatePlanInput struct {
 	Description       string  `json:"description"`
 	DurationDay       int     `json:"duration_day"`
 	MonthlyOrderLimit int     `json:"monthly_order_limit"`
+	ProductLimit      int     `json:"product_limit"`
 }
 
 func AdminCreatePlan(c fiber.Ctx) error {
@@ -765,6 +770,7 @@ func AdminCreatePlan(c fiber.Ctx) error {
 		IsActive:          true,
 		DurationDay:       input.DurationDay,
 		MonthlyOrderLimit: input.MonthlyOrderLimit,
+		ProductLimit:      input.ProductLimit,
 	}
 
 	if plan.DurationDay <= 0 {
@@ -772,6 +778,9 @@ func AdminCreatePlan(c fiber.Ctx) error {
 	}
 
 	if err := db.DB.Create(&plan).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint") || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"success": false, "message": "A plan or add-on with this name already exists"})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to create plan"})
 	}
 
@@ -803,7 +812,15 @@ func AdminDeletePlan(c fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"success": false, "message": "Plan not found"})
 	}
 
+	// Rename to free up the unique name constraint before soft deleting
+	oldName := plan.Name
+	plan.Name = plan.Name + "_deleted_" + fmt.Sprintf("%d", time.Now().Unix())
+	db.DB.Save(&plan)
+
 	if err := db.DB.Delete(&plan).Error; err != nil {
+		// Revert name if delete fails
+		plan.Name = oldName
+		db.DB.Save(&plan)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false, "message": "Failed to delete plan"})
 	}
 

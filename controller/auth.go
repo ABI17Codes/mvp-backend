@@ -48,6 +48,12 @@ func validateRegisterInput(input *RegisterInput) []fiber.Map {
 	return errs
 }
 
+var dummyHash []byte
+
+func init() {
+	dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy"), 14)
+}
+
 // ───────────────────── Register ──────────────────────────────────────────────────────
 
 func Register(c fiber.Ctx) error {
@@ -58,6 +64,13 @@ func Register(c fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{
 			"success": false,
 			"error":   "Invalid request body",
+		})
+	}
+
+	if len(input.Password) >= 20 {
+		return c.Status(400).JSON(fiber.Map{
+			"success": false,
+			"error":   "You cannot create this account",
 		})
 	}
 
@@ -191,6 +204,7 @@ func Login(c fiber.Ctx) error {
 
 	var user models.User
 	if err := db.DB.Where("email = ?", input.Email).First(&user).Error; err != nil {
+		bcrypt.CompareHashAndPassword(dummyHash, []byte(input.Password))
 		return c.Status(401).JSON(fiber.Map{
 			"success": false,
 			"error":   "Invalid email or password", // ✅ don't reveal if email exists

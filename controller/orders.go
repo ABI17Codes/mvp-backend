@@ -5,12 +5,14 @@ import (
 	"backend/models"
 	"backend/requests"
 	"backend/services"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -126,8 +128,10 @@ func CreateOrder(c fiber.Ctx) error {
 	orderReq.UserName = strings.TrimSpace(orderReq.UserName)
 	orderReq.Number = strings.TrimSpace(orderReq.Number)
 	orderReq.Address = strings.TrimSpace(orderReq.Address) 
-	orderReq.ProductName = strings.TrimSpace(orderReq.ProductName) 
 	orderReq.Note = strings.TrimSpace(orderReq.Note)
+	orderReq.PaymentMethod = strings.TrimSpace(orderReq.PaymentMethod)
+	orderReq.PaymentReference = strings.TrimSpace(orderReq.PaymentReference)
+	orderReq.PaymentScreenshot = strings.TrimSpace(orderReq.PaymentScreenshot)
 
 	// Validate required fields
 	if orderReq.UserName == "" {
@@ -144,37 +148,19 @@ func CreateOrder(c fiber.Ctx) error {
 		})
 	}
 
-
-	if orderReq.ProductName == "" {
+	if orderReq.TotalAmount <= 0 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 			"success": false,
-			"message": "ProductName is required",
-		})
-	}
- 
-
-	if orderReq.Price <= 0 {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
-			"success": false,
-			"message": "Price must be greater than 0",
+			"message": "Total amount must be greater than 0",
 		})
 	}
 
-	if orderReq.Quantity <= 0 {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
-			"success": false,
-			"message": "Quantity must be greater than 0",
-		})
-	}
-
-	totalAmount := orderReq.Price * orderReq.Quantity
-
-	// ProductID parse
-	productID, err := uuid.Parse(orderReq.ProductID)
+	// Serialize OrderItems
+	orderItemsJson, err := json.Marshal(orderReq.OrderItems)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Invalid Product ID",
+			"message": "Invalid cart items format",
 		})
 	}
 
@@ -183,19 +169,22 @@ func CreateOrder(c fiber.Ctx) error {
 
 	// Order create
 	order := models.Orders{
-		UserID:      userID,
-		StoreID:     storeID,
-		ProductID:   productID,
-		UserName:    orderReq.UserName,
-		Number:      orderReq.Number,
-		Address:     orderReq.Address,
-		ProductName: orderReq.ProductName,
-		Price:       orderReq.Price,
-		Quantity:    orderReq.Quantity,
-		TotalAmount: totalAmount,
-		Note:        orderReq.Note,
-		Status:      "pending",
-		OrderNumber: fmt.Sprintf("ORD-%s-%d", strings.ToUpper(uuid.New().String()[:4]), count+1),
+		UserID:            userID,
+		StoreID:           storeID,
+		UserName:          orderReq.UserName,
+		Number:            orderReq.Number,
+		Address:           orderReq.Address,
+		OrderItems:        datatypes.JSON(orderItemsJson),
+		Subtotal:          orderReq.Subtotal,
+		DeliveryCharge:    orderReq.DeliveryCharge,
+		TotalAmount:       orderReq.TotalAmount,
+		Note:              orderReq.Note,
+		Status:            "Pending Payment",
+		PaymentMethod:     orderReq.PaymentMethod,
+		PaymentStatus:     "Pending",
+		PaymentReference:  orderReq.PaymentReference,
+		PaymentScreenshot: orderReq.PaymentScreenshot,
+		OrderNumber:       fmt.Sprintf("ORD-%s-%d", strings.ToUpper(uuid.New().String()[:4]), count+1),
 	}
 
 	if err := db.DB.Create(&order).Error; err != nil {
@@ -215,9 +204,9 @@ func CreateOrder(c fiber.Ctx) error {
 		Action:      services.ActionCreateOrder,
 		Resource:    services.ResourceOrder,
 		ResourceID:  &order.ID,
-		Description: "Created order " + order.OrderNumber + " for product: " + order.ProductName + " (Quantity: " + fmt.Sprintf("%d", order.Quantity) + ")",
+		Description: "Created order " + order.OrderNumber + " for " + order.UserName + " (Total: " + fmt.Sprintf("%d", order.TotalAmount) + ")",
 		Success:     true,
-		Metadata:    fiber.Map{"order_number": order.OrderNumber, "product_name": order.ProductName, "quantity": order.Quantity, "total_amount": order.TotalAmount},
+		Metadata:    fiber.Map{"order_number": order.OrderNumber, "total_amount": order.TotalAmount},
 	})
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -346,7 +335,8 @@ func UpdateOrderStatus(c fiber.Ctx) error {
 	}
 
 	type UpdateStatusRequest struct {
-		Status string `json:"status"`
+		Status        string `json:"status"`
+		PaymentStatus string `json:"paymentStatus"`
 	}
 
 	var req UpdateStatusRequest
@@ -358,18 +348,26 @@ func UpdateOrderStatus(c fiber.Ctx) error {
 	}
 
 	req.Status = strings.TrimSpace(req.Status)
-	if req.Status == "" {
+	req.PaymentStatus = strings.TrimSpace(req.PaymentStatus)
+
+	if req.Status == "" && req.PaymentStatus == "" {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 			"success": false,
-			"message": "Status is required",
+			"message": "Status or PaymentStatus is required",
 		})
 	}
 
-	order.Status = req.Status
+	if req.Status != "" {
+		order.Status = req.Status
+	}
+	if req.PaymentStatus != "" {
+		order.PaymentStatus = req.PaymentStatus
+	}
+	
 	if err := db.DB.Save(&order).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Could not update order status",
+			"message": "Could not update order",
 			"error":   err.Error(),
 		})
 	}
@@ -378,14 +376,172 @@ func UpdateOrderStatus(c fiber.Ctx) error {
 		Action:      services.ActionUpdateOrder,
 		Resource:    services.ResourceOrder,
 		ResourceID:  &order.ID,
-		Description: "Updated order status of " + order.OrderNumber + " to " + order.Status,
+		Description: "Updated order " + order.OrderNumber + " status to " + order.Status + ", payment to " + order.PaymentStatus,
 		Success:     true,
-		Metadata:    fiber.Map{"order_number": order.OrderNumber, "status": order.Status},
+		Metadata:    fiber.Map{"order_number": order.OrderNumber, "status": order.Status, "payment_status": order.PaymentStatus},
 	})
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "Order status updated successfully",
+		"data":    order,
+	})
+}
+
+func PublicCreateOrder(c fiber.Ctx) error {
+	storeIDParam := c.Params("storeID")
+
+	storeID, err := uuid.Parse(storeIDParam)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid store ID",
+		})
+	}
+
+	var store models.Store
+
+	if err := db.DB.Where("id = ?", storeID).First(&store).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Store not found",
+		})
+	}
+
+	if isStoreOnFreePlan(store.ID) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"success": false,
+			"message": "Store is not accepting orders at this time.",
+		})
+	}
+
+	// 2. Check monthly order limit
+	var activeSub models.Subscription
+	if errSub := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, "active", time.Now()).Order("created_at desc").First(&activeSub).Error; errSub == nil {
+		if activeSub.Plan.MonthlyOrderLimit > 0 {
+			now := time.Now()
+			
+			// Determine current billing cycle
+			var periodStart time.Time = activeSub.StartDate
+			var periodEnd time.Time
+			for {
+				periodEnd = periodStart.AddDate(0, 1, 0)
+				if periodEnd.After(activeSub.ExpiryDate) {
+					periodEnd = activeSub.ExpiryDate
+				}
+				if now.Before(periodEnd) || now.Equal(periodEnd) {
+					break
+				}
+				if periodStart.After(now) {
+					break
+				}
+				periodStart = periodEnd
+			}
+
+			var usage models.SubscriptionUsage
+			if err := db.DB.Where("subscription_id = ? AND billing_period_start = ?", activeSub.ID, periodStart).First(&usage).Error; err != nil {
+				usage = models.SubscriptionUsage{
+					SubscriptionID:     activeSub.ID,
+					StoreID:            store.ID,
+					BillingPeriodStart: periodStart,
+					BillingPeriodEnd:   periodEnd,
+					OrdersUsed:         0,
+				}
+				db.DB.Create(&usage)
+			}
+			
+			extraLimit := 0
+			if store.ExtraOrdersExpiry != nil && time.Now().Before(*store.ExtraOrdersExpiry) {
+				extraLimit = store.ExtraOrderLimit
+			}
+			
+			limit := activeSub.Plan.MonthlyOrderLimit + extraLimit
+			if usage.OrdersUsed >= limit {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"success": false,
+					"message": "Store is temporarily unable to accept orders. Try again later.",
+				})
+			}
+
+			c.Locals("usage_id", usage.ID)
+		}
+	}
+
+	var orderReq requests.CreateOrderRequest
+
+	if err := c.Bind().Body(&orderReq); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	orderReq.UserName = strings.TrimSpace(orderReq.UserName)
+	orderReq.Number = strings.TrimSpace(orderReq.Number)
+	orderReq.Address = strings.TrimSpace(orderReq.Address) 
+	orderReq.Note = strings.TrimSpace(orderReq.Note)
+	orderReq.PaymentMethod = strings.TrimSpace(orderReq.PaymentMethod)
+	orderReq.PaymentReference = strings.TrimSpace(orderReq.PaymentReference)
+	orderReq.PaymentScreenshot = strings.TrimSpace(orderReq.PaymentScreenshot)
+
+	if orderReq.UserName == "" || orderReq.Number == "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+			"success": false,
+			"message": "Name and Phone number are required",
+		})
+	}
+
+	if orderReq.TotalAmount <= 0 {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+			"success": false,
+			"message": "Total amount must be greater than 0",
+		})
+	}
+
+	orderItemsJson, err := json.Marshal(orderReq.OrderItems)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid cart items format",
+		})
+	}
+
+	var count int64
+	db.DB.Model(&models.Orders{}).Where("store_id = ?", storeID).Count(&count)
+
+	order := models.Orders{
+		StoreID:           storeID,
+		UserName:          orderReq.UserName,
+		Number:            orderReq.Number,
+		Address:           orderReq.Address,
+		OrderItems:        datatypes.JSON(orderItemsJson),
+		Subtotal:          orderReq.Subtotal,
+		DeliveryCharge:    orderReq.DeliveryCharge,
+		TotalAmount:       orderReq.TotalAmount,
+		Note:              orderReq.Note,
+		Status:            "Pending Payment",
+		PaymentMethod:     orderReq.PaymentMethod,
+		PaymentStatus:     "Pending",
+		PaymentReference:  orderReq.PaymentReference,
+		PaymentScreenshot: orderReq.PaymentScreenshot,
+		OrderNumber:       fmt.Sprintf("ORD-%s-%d", strings.ToUpper(uuid.New().String()[:4]), count+1),
+	}
+
+	if err := db.DB.Create(&order).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to create order",
+		})
+	}
+
+	usageID := c.Locals("usage_id")
+	if usageID != nil {
+		db.DB.Model(&models.SubscriptionUsage{}).Where("id = ?", usageID).UpdateColumn("orders_used", gorm.Expr("orders_used + ?", 1))
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
+		"message": "Order created successfully",
 		"data":    order,
 	})
 }
@@ -397,4 +553,47 @@ func isStoreOnFreePlan(storeID uuid.UUID) bool {
 		return true // No active subscription found = Free plan
 	}
 	return sub.Plan.Name == "free"
+}
+
+func GetPublicOrderByOrderNumber(c fiber.Ctx) error {
+	orderNumber := strings.TrimSpace(c.Params("orderNumber"))
+	if orderNumber == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Order number is required",
+		})
+	}
+
+	var order models.Orders
+	if err := db.DB.Where("order_number = ?", orderNumber).First(&order).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Order not found",
+		})
+	}
+
+	var store models.Store
+	if err := db.DB.Where("id = ?", order.StoreID).First(&store).Error; err == nil {
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"data": fiber.Map{
+				"order": order,
+				"store": fiber.Map{
+					"name":        store.Name,
+					"number":      store.Number,
+					"logo":        store.Logo,
+					"upiId":       store.UpiId,
+					"upiName":     store.UpiName,
+					"description": store.Description,
+				},
+			},
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"order": order,
+		},
+	})
 }
