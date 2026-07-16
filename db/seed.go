@@ -26,7 +26,7 @@ func SeedAdmin() {
 		log.Fatal("❌ Could not hash admin password:", err)
 	}
 	admin := models.User{
-		Name:     "Super Admin",
+		Name:     "Admin",
 		Email:    os.Getenv("ADMIN_EMAIL"),
 		Password: string(hashed),
 		Role:     models.RoleAdmin,

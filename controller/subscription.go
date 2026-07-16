@@ -174,10 +174,10 @@ func UpgradeSubscription(c fiber.Ctx) error {
 		})
 	}
 
-	if input.PlanID == "" || (input.TransactionID == "" && input.Screenshot == "") {
+	if input.PlanID == "" {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 			"success": false,
-			"message": "Plan ID, and either Transaction ID or payment screenshot proof is required",
+			"message": "Plan ID is required",
 		})
 	}
 
@@ -231,11 +231,24 @@ func UpgradeSubscription(c fiber.Ctx) error {
 		months = 1
 	}
 
+	actualPrice := plan.Price
+	if plan.IsOfferActive {
+		actualPrice = plan.OfferPrice
+	}
+	totalAmount := actualPrice * float64(months)
+
+	if totalAmount > 0 && input.TransactionID == "" && input.Screenshot == "" {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+			"success": false,
+			"message": "Transaction ID or payment screenshot proof is required for paid plans",
+		})
+	}
+
 	payReq := models.Payment{
 		UserID:        userID,
 		StoreID:       store.ID,
 		PlanID:        plan.ID,
-		Amount:        plan.Price * float64(months), // strictly resolve price from DB and multiply by months
+		Amount:        totalAmount,
 		PaymentMethod: "UPI",
 		TransactionID: input.TransactionID,
 		Screenshot:    input.Screenshot,

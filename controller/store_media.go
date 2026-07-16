@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -10,8 +11,10 @@ import (
 	"backend/db"
 	"backend/models"
 
-	"github.com/cloudinary/cloudinary-go/v2"
-	"github.com/cloudinary/cloudinary-go/v2/api/uploader"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -74,21 +77,41 @@ func UploadImage(c fiber.Ctx) error {
 		})
 	}
 
-	// Cloudinary upload
-	cld, err := cloudinary.New()
-	if err != nil {
+	// R2 configuration
+	accountID := os.Getenv("R2_ACCOUNT_ID")
+	accessKeyId := os.Getenv("R2_ACCESS_KEY_ID")
+	accessKeySecret := os.Getenv("R2_SECRET_ACCESS_KEY")
+	bucketName := os.Getenv("R2_BUCKET_NAME")
+	endpoint := os.Getenv("R2_ENDPOINT")
+
+	if accountID == "" || accessKeyId == "" || accessKeySecret == "" || bucketName == "" || endpoint == "" {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Cloudinary configuration error",
-			"error":   err.Error(),
+			"message": "R2 configuration is incomplete",
 		})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	folderName := fmt.Sprintf("kadaitheru/%s", store.Slug)
-	safeName := fmt.Sprintf("%s_%s", uuid.New().String(), strings.TrimSuffix(filepath.Base(fileHeader.Filename), filepath.Ext(fileHeader.Filename)))
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("auto"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKeyId, accessKeySecret, "")),
+	)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to load R2 configuration",
+			"error":   err.Error(),
+		})
+	}
+
+	// Create an S3 client
+	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+
+	objectKey := fmt.Sprintf("kadaitheru/%s/%s_%s%s", store.Slug, uuid.New().String(), strings.TrimSuffix(filepath.Base(fileHeader.Filename), filepath.Ext(fileHeader.Filename)), filepath.Ext(fileHeader.Filename))
 
 	file, err := fileHeader.Open()
 	if err != nil {
@@ -100,29 +123,34 @@ func UploadImage(c fiber.Ctx) error {
 	}
 	defer file.Close()
 
-	uploadResult, uploadErr := cld.Upload.Upload(ctx, file, uploader.UploadParams{
-		Folder:   folderName,
-		PublicID: safeName,
+	_, uploadErr := s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucketName),
+		Key:         aws.String(objectKey),
+		Body:        file,
+		ContentType: aws.String(mime),
 	})
 
 	if uploadErr != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "Cloudinary upload failed",
+			"message": "R2 upload failed",
 			"error":   uploadErr.Error(),
 		})
 	}
 
-	if uploadResult.Error.Message != "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"success": false,
-			"message": "Cloudinary upload failed: " + uploadResult.Error.Message,
-		})
+	publicDomain := os.Getenv("R2_PUBLIC_DOMAIN")
+	var publicURL string
+	if publicDomain != "" {
+		publicURL = fmt.Sprintf("%s/%s", strings.TrimRight(publicDomain, "/"), objectKey)
+	} else {
+		// Fallback to S3 endpoint URL (might not be publicly accessible by default on R2)
+		publicURL = fmt.Sprintf("%s/%s/%s", strings.TrimRight(endpoint, "/"), bucketName, objectKey)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"success": true,
 		"message": "Image uploaded successfully",
-		"url":     uploadResult.SecureURL,
+		"url":     publicURL,
 	})
 }
+
