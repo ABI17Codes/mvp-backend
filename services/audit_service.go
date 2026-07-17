@@ -5,6 +5,7 @@ import (
 	"backend/models"
 	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -76,7 +77,12 @@ func Log(c fiber.Ctx, act Activity) {
 	// Extract IP Address and User-Agent
 	ipAddress := c.IP()
 	if xff := c.Get("X-Forwarded-For"); xff != "" {
-		ipAddress = xff
+		ips := strings.Split(xff, ",")
+		ipAddress = strings.TrimSpace(ips[0])
+	}
+	
+	if len(ipAddress) > 45 {
+		ipAddress = ipAddress[:45]
 	}
 	userAgent := c.Get("User-Agent")
 	method := c.Method()

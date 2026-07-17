@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v3"
+	"gorm.io/gorm"
 )
 
 func AdminGetAuditLogs(c fiber.Ctx) error {
@@ -27,7 +28,9 @@ func AdminGetAuditLogs(c fiber.Ctx) error {
 
 	offset := (page - 1) * limit
 
-	query := db.DB.Model(&models.AuditLog{}).Preload("User")
+	query := db.DB.Model(&models.AuditLog{}).Preload("User", func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	})
 
 	if action != "" {
 		query = query.Where("action = ?", action)
