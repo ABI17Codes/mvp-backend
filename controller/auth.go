@@ -171,6 +171,7 @@ func Register(c fiber.Ctx) error {
 		ResourceID:  &user.ID,
 		Description: "User registered account: " + user.Email,
 		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email, "name": user.Name, "role": user.Role, "id": user.ID},
 	})
 
 	return c.Status(201).JSON(fiber.Map{
@@ -269,6 +270,7 @@ func Login(c fiber.Ctx) error {
 		ResourceID:  &user.ID,
 		Description: "User logged in: " + user.Email,
 		Success:     true,
+		Metadata:    fiber.Map{"email": user.Email, "role": user.Role, "id": user.ID},
 	})
 
 	return c.JSON(fiber.Map{
@@ -324,6 +326,7 @@ func Logout(c fiber.Ctx) error {
 				ResourceID:  &uID,
 				Description: "User logged out",
 				Success:     true,
+				Metadata:    fiber.Map{"user_id": uID.String()},
 			})
 		}
 	}
