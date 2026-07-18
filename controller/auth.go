@@ -94,7 +94,7 @@ func Register(c fiber.Ctx) error {
 	// 	})F
 	// }
 
-	if err := db.DB.Where("email = ?", input.Email).First(&existing).Error; err == nil {
+	if err := db.DB.Unscoped().Where("email = ?", input.Email).First(&existing).Error; err == nil {
 		return c.Status(409).JSON(fiber.Map{
 			"success": false,
 			"error":   "Email already in use",
