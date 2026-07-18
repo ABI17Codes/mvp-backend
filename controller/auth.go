@@ -125,8 +125,6 @@ func Register(c fiber.Ctx) error {
 		})
 	}
 
- 
-
 	// 6. Check if account is active
 	// if !user.IsActive {
 	// 	return c.Status(403).JSON(fiber.Map{

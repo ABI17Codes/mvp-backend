@@ -6,6 +6,7 @@ import (
 	"backend/routes"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -92,6 +93,30 @@ func main() {
 
 	routes.SetupRoutes(apiv1)
 
+	apiv1.Get("/fix-plans", func(c fiber.Ctx) error {
+		var plans []models.Plan
+		db.DB.Find(&plans)
+
+		for _, p := range plans {
+			name := strings.ToLower(p.Name)
+			if strings.Contains(name, "basic") {
+				p.ProductLimit = 50
+				p.MonthlyOrderLimit = 1000
+			} else if strings.Contains(name, "growth") {
+				p.ProductLimit = 200
+				p.MonthlyOrderLimit = 5000
+			} else if strings.Contains(name, "scale") {
+				p.ProductLimit = -1
+				p.MonthlyOrderLimit = -1
+			} else if strings.Contains(name, "free") {
+				p.ProductLimit = 20
+				p.MonthlyOrderLimit = 50
+			}
+			db.DB.Save(&p)
+		}
+		return c.SendString("Plans have been successfully fixed! You can now check your subscription page.")
+	})
+
 	// Serve uploaded images as static files
 	app.Get("/uploads/*", func(c fiber.Ctx) error {
 		filePath := "." + c.Path()
@@ -101,6 +126,8 @@ func main() {
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendString("Server running!")
 	})
+
+
 
 	port := os.Getenv("PORT")
 
