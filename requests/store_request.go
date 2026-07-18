@@ -26,7 +26,11 @@ type UpdateStoreRequest struct {
 	BannerImages   []string `json:"bannerimages"`
 	Slug           string   `json:"slug"`
 	StoreTemplate  string   `json:"store_template"`
-	DeliveryCharge *float64 `json:"deliveryCharge"`
+
+	DeliveryCharge        *float64 `json:"deliveryCharge"`
+	FreeDeliveryEnabled   *bool    `json:"freeDeliveryEnabled"`
+	FreeDeliveryThreshold *float64 `json:"freeDeliveryThreshold"`
+
 	UpiId          string   `json:"upiId"`
 	UpiName        string   `json:"upiName"`
 	PrivacyPolicy  string   `json:"privacyPolicy"`

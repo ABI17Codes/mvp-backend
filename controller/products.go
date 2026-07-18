@@ -333,7 +333,7 @@ func UpdateProduct(c fiber.Ctx) error {
 		})
 	}
 
-	var productReq requests.CreateProductRequest
+	var productReq requests.UpdateProductRequest
 
 	if err := c.Bind().Body(&productReq); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{

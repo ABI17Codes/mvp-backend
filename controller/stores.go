@@ -284,9 +284,17 @@ func UpdateStore(c fiber.Ctx) error {
 	if storeReq.BannerImages != nil {
 		store.BannerImages = storeReq.BannerImages
 	}
+
 	if storeReq.DeliveryCharge != nil {
 		store.DeliveryCharge = *storeReq.DeliveryCharge
 	}
+	if storeReq.FreeDeliveryEnabled != nil {
+		store.FreeDeliveryEnabled = *storeReq.FreeDeliveryEnabled
+	}
+	if storeReq.FreeDeliveryThreshold != nil {
+		store.FreeDeliveryThreshold = *storeReq.FreeDeliveryThreshold
+	}
+
 	store.UpiId = strings.TrimSpace(storeReq.UpiId)
 	store.UpiName = strings.TrimSpace(storeReq.UpiName)
 	store.PrivacyPolicy = strings.TrimSpace(storeReq.PrivacyPolicy)

@@ -24,7 +24,8 @@ type Store struct {
 	SEO     SEO       `json:"seo" gorm:"foreignKey:storeID"`
 
 	DeliveryCharge float64 `json:"deliveryCharge" gorm:"default:0"`
-
+	FreeDeliveryEnabled   bool    `json:"freeDeliveryEnabled" gorm:"default:false"`
+	FreeDeliveryThreshold float64 `json:"freeDeliveryThreshold" gorm:"default:0"`
 	UpiId   string    `json:"upiId"`
 	UpiName string    `json:"upiName"`
 
