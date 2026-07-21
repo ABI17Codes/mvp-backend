@@ -735,8 +735,8 @@ func UpdateUPIConfig(c fiber.Ctx) error {
 		})
 	}
 
-	db.DB.Model(&models.Config{}).Where("key = ?", "upi_id").Update("value", input.UPIID)
-	db.DB.Model(&models.Config{}).Where("key = ?", "upi_name").Update("value", input.UPIName)
+	db.DB.Save(&models.Config{Key: "upi_id", Value: input.UPIID})
+	db.DB.Save(&models.Config{Key: "upi_name", Value: input.UPIName})
 
 	services.Log(c, services.Activity{
 		Action:      "UPDATE_UPI_CONFIG",
