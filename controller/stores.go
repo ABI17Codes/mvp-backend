@@ -161,15 +161,16 @@ func CreateStore(c fiber.Ctx) error {
 	}
 
 	// First month free plan
-	var premiumPlan models.Plan
-	if err := tx.Where("price = ? OR name = ?", 99, "growth").First(&premiumPlan).Error; err == nil {
+	var basicPlan models.Plan
+	if err := tx.Where("price = ? OR name = ?", 99, "basic").First(&basicPlan).Error; err == nil {
 		firstMonthFreeSub := models.Subscription{
 			UserID:     userID,
 			StoreID:    storeCreation.ID,
-			PlanID:     premiumPlan.ID,
+			PlanID:     basicPlan.ID,
 			Status:     models.SubscriptionActive,
 			StartDate:  time.Now(),
 			ExpiryDate: time.Now().AddDate(0, 1, 0),
+			IsTrial:    true,
 		}
 		tx.Create(&firstMonthFreeSub)
 	}

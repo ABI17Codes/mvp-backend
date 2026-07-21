@@ -29,4 +29,5 @@ type Subscription struct {
 	StartDate  time.Time `json:"startDate"`
 	ExpiryDate time.Time `json:"expiryDate"`
 
+	IsTrial bool `json:"isTrial" gorm:"default:false"`
 }
