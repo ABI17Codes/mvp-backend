@@ -97,17 +97,16 @@ func CreateOrder(c fiber.Ctx) error {
 				db.DB.Create(&usage)
 			}
 			
-			extraLimit := 0
-			if store.ExtraOrdersExpiry != nil && time.Now().Before(*store.ExtraOrdersExpiry) {
-				extraLimit = store.ExtraOrderLimit
-			}
-			
-			limit := activeSub.Plan.MonthlyOrderLimit + extraLimit
+			limit := activeSub.Plan.MonthlyOrderLimit
 			if usage.OrdersUsed >= limit {
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"success": false,
-					"message": "Monthly order limit reached. Please upgrade your subscription or contact support.",
-				})
+				if store.ExtraOrderLimit > 0 {
+					c.Locals("using_extra_order", true)
+				} else {
+					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+						"success": false,
+						"message": "Monthly order limit reached and no extra add-on orders left. Please buy an add-on or upgrade.",
+					})
+				}
 			}
 
 			// Store usage ID in context or variable for increment later
@@ -198,6 +197,10 @@ func CreateOrder(c fiber.Ctx) error {
 	usageID := c.Locals("usage_id")
 	if usageID != nil {
 		db.DB.Model(&models.SubscriptionUsage{}).Where("id = ?", usageID).UpdateColumn("orders_used", gorm.Expr("orders_used + ?", 1))
+	}
+
+	if c.Locals("using_extra_order") != nil {
+		db.DB.Model(&models.Store{}).Where("id = ?", store.ID).UpdateColumn("extra_order_limit", gorm.Expr("extra_order_limit - ?", 1))
 	}
 
 	services.Log(c, services.Activity{
@@ -450,17 +453,16 @@ func PublicCreateOrder(c fiber.Ctx) error {
 				db.DB.Create(&usage)
 			}
 			
-			extraLimit := 0
-			if store.ExtraOrdersExpiry != nil && time.Now().Before(*store.ExtraOrdersExpiry) {
-				extraLimit = store.ExtraOrderLimit
-			}
-			
-			limit := activeSub.Plan.MonthlyOrderLimit + extraLimit
+			limit := activeSub.Plan.MonthlyOrderLimit
 			if usage.OrdersUsed >= limit {
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"success": false,
-					"message": "Store is temporarily unable to accept orders. Try again later.",
-				})
+				if store.ExtraOrderLimit > 0 {
+					c.Locals("using_extra_order", true)
+				} else {
+					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+						"success": false,
+						"message": "Store is temporarily unable to accept orders. Try again later.",
+					})
+				}
 			}
 
 			c.Locals("usage_id", usage.ID)
@@ -537,6 +539,10 @@ func PublicCreateOrder(c fiber.Ctx) error {
 	usageID := c.Locals("usage_id")
 	if usageID != nil {
 		db.DB.Model(&models.SubscriptionUsage{}).Where("id = ?", usageID).UpdateColumn("orders_used", gorm.Expr("orders_used + ?", 1))
+	}
+
+	if c.Locals("using_extra_order") != nil {
+		db.DB.Model(&models.Store{}).Where("id = ?", store.ID).UpdateColumn("extra_order_limit", gorm.Expr("extra_order_limit - ?", 1))
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{

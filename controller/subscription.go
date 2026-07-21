@@ -89,27 +89,24 @@ func GetMySubscription(c fiber.Ctx) error {
 			}
 		}
 
-		extraLimit := 0
-		if store.ExtraOrdersExpiry != nil && time.Now().Before(*store.ExtraOrdersExpiry) {
-			extraLimit = store.ExtraOrderLimit
-		}
+		extraLimit := store.ExtraOrderLimit
 
 		return c.JSON(fiber.Map{
 			"success": true,
 			"data": fiber.Map{
-				"id": sub.ID,
-				"userID": sub.UserID,
-				"storeID": sub.StoreID,
-				"planID": sub.PlanID,
-				"plan": sub.Plan,
-				"status": sub.Status,
-				"startDate": sub.StartDate,
-				"expiryDate": sub.ExpiryDate,
+				"id":           sub.ID,
+				"userID":       sub.UserID,
+				"storeID":      sub.StoreID,
+				"planID":       sub.PlanID,
+				"plan":         sub.Plan,
+				"status":       sub.Status,
+				"startDate":    sub.StartDate,
+				"expiryDate":   sub.ExpiryDate,
 				"pendingAddon": pendingAddon,
 				"usage": fiber.Map{
 					"products_active": activeProductsCount,
-					"orders_used": usage.OrdersUsed,
-					"extra_orders": extraLimit,
+					"orders_used":     usage.OrdersUsed,
+					"extra_orders":    extraLimit,
 				},
 			},
 		})
@@ -128,23 +125,20 @@ func GetMySubscription(c fiber.Ctx) error {
 	startOfMonth := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Local)
 	db.DB.Model(&models.Orders{}).Where("store_id = ? AND created_at >= ?", store.ID, startOfMonth).Count(&ordersUsed)
 
-	extraLimit := 0
-	if store.ExtraOrdersExpiry != nil && time.Now().Before(*store.ExtraOrdersExpiry) {
-		extraLimit = store.ExtraOrderLimit
-	}
+	extraLimit := store.ExtraOrderLimit
 
 	return c.JSON(fiber.Map{
 		"success": true,
 		"data": fiber.Map{
-			"status":      "active",
-			"plan_id":     freePlan.ID,
-			"plan":        freePlan,
-			"startDate":   store.CreatedAt,
-			"expiryDate":  store.CreatedAt.AddDate(10, 0, 0), // Mock long duration
+			"status":     "active",
+			"plan_id":    freePlan.ID,
+			"plan":       freePlan,
+			"startDate":  store.CreatedAt,
+			"expiryDate": store.CreatedAt.AddDate(10, 0, 0), // Mock long duration
 			"usage": fiber.Map{
 				"products_active": activeProductsCount,
-				"orders_used": ordersUsed,
-				"extra_orders": extraLimit,
+				"orders_used":     ordersUsed,
+				"extra_orders":    extraLimit,
 			},
 		},
 	})
@@ -573,14 +567,14 @@ func AdminVerifyPayment(c fiber.Ctx) error {
 			if store.ExtraOrdersExpiry != nil && time.Now().After(*store.ExtraOrdersExpiry) {
 				store.ExtraOrderLimit = 0
 			}
-			
+
 			// Dynamically add the order limit specified in the addon plan
 			limitToAdd := payReq.Plan.MonthlyOrderLimit
 			if limitToAdd <= 0 {
 				limitToAdd = 1000 // Fallback if not specified
 			}
 			store.ExtraOrderLimit += limitToAdd
-			
+
 			now := time.Now()
 			endOfMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
 			store.ExtraOrdersExpiry = &endOfMonth
@@ -698,7 +692,7 @@ func AdminVerifyPayment(c fiber.Ctx) error {
 func GetUPIConfig(c fiber.Ctx) error {
 	var upiID models.Config
 	var upiName models.Config
-	
+
 	db.DB.First(&upiID, "key = ?", "upi_id")
 	db.DB.First(&upiName, "key = ?", "upi_name")
 
