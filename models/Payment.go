@@ -34,6 +34,10 @@ type Payment struct {
 	Remarks string `json:"remarks"`
 	Months  int    `json:"months" gorm:"default:1"`
 
+	IsRefunded    bool   `json:"isRefunded" gorm:"default:false"`
+	RefundRemarks string `json:"refundRemarks"`
+	StoreDeleted  bool   `json:"storeDeleted" gorm:"-"`
+
 	ApprovedBy *uuid.UUID `json:"approved_by" gorm:"type:uuid"`
 	ApprovedAt *time.Time `json:"approved_at"`
 }

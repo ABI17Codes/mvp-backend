@@ -160,6 +160,20 @@ func CreateStore(c fiber.Ctx) error {
 		})
 	}
 
+	// First month free plan
+	var premiumPlan models.Plan
+	if err := tx.Where("price = ? OR name = ?", 99, "growth").First(&premiumPlan).Error; err == nil {
+		firstMonthFreeSub := models.Subscription{
+			UserID:     userID,
+			StoreID:    storeCreation.ID,
+			PlanID:     premiumPlan.ID,
+			Status:     models.SubscriptionActive,
+			StartDate:  time.Now(),
+			ExpiryDate: time.Now().AddDate(0, 1, 0),
+		}
+		tx.Create(&firstMonthFreeSub)
+	}
+
 	if err := tx.Commit().Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,

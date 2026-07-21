@@ -120,6 +120,7 @@ func SetupRoutes(router fiber.Router) {
 	// Payment requests verification
 	admin.Get("/payments", controller.AdminGetPayments)
 	admin.Post("/payments/:id/verify", controller.AdminVerifyPayment)
+	admin.Put("/payments/:id/refund", controller.AdminRefundPayment)
 
 	// Audit logs
 	admin.Get("/audit-logs", controller.AdminGetAuditLogs)

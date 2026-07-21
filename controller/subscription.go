@@ -358,7 +358,9 @@ func UpgradeSubscription(c fiber.Ctx) error {
 
 func AdminGetPayments(c fiber.Ctx) error {
 	status := c.Query("status")
-	query := db.DB.Preload("User").Preload("Store").Preload("Plan")
+	query := db.DB.Preload("User").Preload("Store", func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	}).Preload("Plan")
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -371,9 +373,107 @@ func AdminGetPayments(c fiber.Ctx) error {
 		})
 	}
 
+	for i := range requests {
+		if requests[i].Store.DeletedAt.Valid {
+			requests[i].StoreDeleted = true
+		}
+	}
+
 	return c.JSON(fiber.Map{
 		"success": true,
 		"data":    requests,
+	})
+}
+
+type RefundInput struct {
+	Remarks string `json:"remarks"`
+}
+
+func AdminRefundPayment(c fiber.Ctx) error {
+	adminIDStr, ok := c.Locals("userID").(string)
+	if !ok || adminIDStr == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Admin user not authenticated",
+		})
+	}
+
+	reqIDStr := c.Params("id")
+	reqUUID, err := uuid.Parse(reqIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request ID format",
+		})
+	}
+
+	input := new(RefundInput)
+	if err := c.Bind().Body(input); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
+		})
+	}
+
+	var payReq models.Payment
+	if err := db.DB.Preload("Plan").First(&payReq, "id = ?", reqUUID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"message": "Payment request not found",
+		})
+	}
+
+	if payReq.Status != models.PaymentApproved {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"success": false,
+			"message": "Only approved payments can be refunded.",
+		})
+	}
+
+	if payReq.IsRefunded {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"success": false,
+			"message": "This payment has already been refunded.",
+		})
+	}
+
+	tx := db.DB.Begin()
+
+	payReq.IsRefunded = true
+	payReq.RefundRemarks = input.Remarks
+
+	if err := tx.Save(&payReq).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to update payment request status",
+		})
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to commit verification transaction",
+		})
+	}
+
+	services.Log(c, services.Activity{
+		Action:      "PAYMENT_REFUNDED",
+		Resource:    services.ResourcePayment,
+		ResourceID:  &payReq.ID,
+		Description: "Refunded manual payment for store upgrade to plan " + payReq.Plan.Name,
+		Success:     true,
+		Metadata: fiber.Map{
+			"remarks":        input.Remarks,
+			"payment_req_id": payReq.ID.String(),
+			"plan_name":      payReq.Plan.Name,
+		},
+	})
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Payment has been successfully marked as refunded",
+		"data":    payReq,
 	})
 }
 
