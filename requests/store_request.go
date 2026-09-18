@@ -13,6 +13,7 @@ type CreateStoreRequest struct {
 	Address      string   `json:"address"`
 	UpiId        string   `json:"upiId"`
 	UpiName      string   `json:"upiName"`
+	CodEnabled   *bool    `json:"codEnabled"`
 }
 
 type UpdateStoreRequest struct {
@@ -30,6 +31,7 @@ type UpdateStoreRequest struct {
 	DeliveryCharge        *float64 `json:"deliveryCharge"`
 	FreeDeliveryEnabled   *bool    `json:"freeDeliveryEnabled"`
 	FreeDeliveryThreshold *float64 `json:"freeDeliveryThreshold"`
+	CodEnabled            *bool    `json:"codEnabled"`
 
 	UpiId          string   `json:"upiId"`
 	UpiName        string   `json:"upiName"`

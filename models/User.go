@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 const (
 	RoleAdmin      = "admin"
 	RoleStoreOwner = "storeowner"
@@ -9,9 +11,11 @@ const (
 
 type User struct {
 	BaseModel
-	Name        string `json:"name"`
-	Email       string `json:"email" gorm:"unique"`
-	Password    string `json:"-"`
-	Role        string `json:"role" gorm:"default:customer"`
-	IsSuspended bool   `json:"isSuspended" gorm:"default:false"`
+	Name        string     `json:"name"`
+	Email       string     `json:"email" gorm:"unique"`
+	Password    string     `json:"-"`
+	Role        string     `json:"role" gorm:"default:customer"`
+	IsSuspended bool       `json:"isSuspended" gorm:"default:false"`
+	LoginCount  int        `json:"loginCount" gorm:"default:0"`
+	LastLoginAt *time.Time `json:"lastLoginAt"`
 }

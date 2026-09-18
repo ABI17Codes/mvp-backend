@@ -58,14 +58,14 @@ func init() {
 
 func Register(c fiber.Ctx) error {
 
-	input := new(RegisterInput)
+	input := new(RegisterInput)  
 
 	if err := c.Bind().Body(input); err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"success": false,
 			"error":   "Invalid request body",
 		})
-	}
+	}   
 
 	if len(input.Password) >= 20 {
 		return c.Status(400).JSON(fiber.Map{
@@ -172,6 +172,9 @@ func Register(c fiber.Ctx) error {
 		Metadata:    fiber.Map{"email": user.Email, "name": user.Name, "role": user.Role, "id": user.ID},
 	})
 
+	// Asynchronously notify Super Admin of new user registration
+	services.SendNewUserAlert("New User Registered", user, c.IP(), string(c.Request().Header.UserAgent()))
+
 	return c.Status(201).JSON(fiber.Map{
 		"success": true,
 		"message": "Account created successfully",
@@ -206,7 +209,7 @@ func Login(c fiber.Ctx) error {
 		bcrypt.CompareHashAndPassword(dummyHash, []byte(input.Password))
 		return c.Status(401).JSON(fiber.Map{
 			"success": false,
-			"error":   "Invalid email or password", // ✅ don't reveal if email exists
+			"error":   "Invalid email or password", 
 		})
 	}
 
@@ -241,6 +244,18 @@ func Login(c fiber.Ctx) error {
 			"error":   "Could not generate token",
 		})
 	}
+
+	// Notify Super Admin if this is a brand new user's first login
+	if user.LoginCount == 0 {
+		services.SendNewUserAlert("New User First Login", user, c.IP(), string(c.Request().Header.UserAgent()))
+	}
+
+	// Update user's login tracking statistics
+	now := time.Now()
+	db.DB.Model(&models.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{
+		"login_count":   user.LoginCount + 1,
+		"last_login_at": &now,
+	})
 
 	user.Password = ""
 

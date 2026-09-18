@@ -121,6 +121,10 @@ func CreateStore(c fiber.Ctx) error {
 		StoreTemplate: "classic",
 		UpiId:         storeReq.UpiId,
 		UpiName:       storeReq.UpiName,
+		CodEnabled:    true,
+	}
+	if storeReq.CodEnabled != nil {
+		storeCreation.CodEnabled = *storeReq.CodEnabled
 	}
 
 	tx := db.DB.Begin()
@@ -308,6 +312,9 @@ func UpdateStore(c fiber.Ctx) error {
 	}
 	if storeReq.FreeDeliveryThreshold != nil {
 		store.FreeDeliveryThreshold = *storeReq.FreeDeliveryThreshold
+	}
+	if storeReq.CodEnabled != nil {
+		store.CodEnabled = *storeReq.CodEnabled
 	}
 
 	store.UpiId = strings.TrimSpace(storeReq.UpiId)
