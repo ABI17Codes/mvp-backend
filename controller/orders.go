@@ -7,8 +7,7 @@ import (
 	"backend/services"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
+	"strings" 
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -52,66 +51,6 @@ func CreateOrder(c fiber.Ctx) error {
 			"success": false,
 			"message": "Store not found for this user",
 		})
-	}
-
-	if isStoreOnFreePlan(store.ID) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"success": false,
-			"message": "Orders are not available on the Free plan. Please upgrade to a premium plan.",
-		})
-	}
-
-	// 2. Check monthly order limit
-	var activeSub models.Subscription
-	if errSub := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, "active", time.Now()).Order("created_at desc").First(&activeSub).Error; errSub == nil {
-		if activeSub.Plan.MonthlyOrderLimit > 0 {
-			now := time.Now()
-			
-			// Determine current billing cycle
-			var periodStart time.Time = activeSub.StartDate
-			var periodEnd time.Time
-			for {
-				periodEnd = periodStart.AddDate(0, 1, 0)
-				if periodEnd.After(activeSub.ExpiryDate) {
-					periodEnd = activeSub.ExpiryDate
-				}
-				if now.Before(periodEnd) || now.Equal(periodEnd) {
-					break
-				}
-				// Break if we exceed current time somehow without catching it (failsafe)
-				if periodStart.After(now) {
-					break
-				}
-				periodStart = periodEnd
-			}
-
-			var usage models.SubscriptionUsage
-			if err := db.DB.Where("subscription_id = ? AND billing_period_start = ?", activeSub.ID, periodStart).First(&usage).Error; err != nil {
-				usage = models.SubscriptionUsage{
-					SubscriptionID:     activeSub.ID,
-					StoreID:            store.ID,
-					BillingPeriodStart: periodStart,
-					BillingPeriodEnd:   periodEnd,
-					OrdersUsed:         0,
-				}
-				db.DB.Create(&usage)
-			}
-			
-			limit := activeSub.Plan.MonthlyOrderLimit
-			if usage.OrdersUsed >= limit {
-				if store.ExtraOrderLimit > 0 {
-					c.Locals("using_extra_order", true)
-				} else {
-					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-						"success": false,
-						"message": "Monthly order limit reached and no extra add-on orders left. Please buy an add-on or upgrade.",
-					})
-				}
-			}
-
-			// Store usage ID in context or variable for increment later
-			c.Locals("usage_id", usage.ID)
-		}
 	}
 
 	var orderReq requests.CreateOrderRequest
@@ -255,13 +194,6 @@ func GetMyStoreOrders(c fiber.Ctx) error {
 		})
 	}
 
-	if isStoreOnFreePlan(store.ID) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"success": false,
-			"message": "Orders are not available on the Free plan. Please upgrade to a premium plan.",
-		})
-	}
-
 	var orders []models.Orders
 	if err := db.DB.Where("store_id = ?", storeID).Order("created_at desc").Find(&orders).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -319,13 +251,6 @@ func UpdateOrderStatus(c fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"success": false,
 			"message": "Store not found for this user",
-		})
-	}
-
-	if isStoreOnFreePlan(store.ID) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"success": false,
-			"message": "Orders are not available on the Free plan. Please upgrade to a premium plan.",
 		})
 	}
 
@@ -411,64 +336,6 @@ func PublicCreateOrder(c fiber.Ctx) error {
 		})
 	}
 
-	if isStoreOnFreePlan(store.ID) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"success": false,
-			"message": "Store is not accepting orders at this time.",
-		})
-	}
-
-	// 2. Check monthly order limit
-	var activeSub models.Subscription
-	if errSub := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, "active", time.Now()).Order("created_at desc").First(&activeSub).Error; errSub == nil {
-		if activeSub.Plan.MonthlyOrderLimit > 0 {
-			now := time.Now()
-			
-			// Determine current billing cycle
-			var periodStart time.Time = activeSub.StartDate
-			var periodEnd time.Time
-			for {
-				periodEnd = periodStart.AddDate(0, 1, 0)
-				if periodEnd.After(activeSub.ExpiryDate) {
-					periodEnd = activeSub.ExpiryDate
-				}
-				if now.Before(periodEnd) || now.Equal(periodEnd) {
-					break
-				}
-				if periodStart.After(now) {
-					break
-				}
-				periodStart = periodEnd
-			}
-
-			var usage models.SubscriptionUsage
-			if err := db.DB.Where("subscription_id = ? AND billing_period_start = ?", activeSub.ID, periodStart).First(&usage).Error; err != nil {
-				usage = models.SubscriptionUsage{
-					SubscriptionID:     activeSub.ID,
-					StoreID:            store.ID,
-					BillingPeriodStart: periodStart,
-					BillingPeriodEnd:   periodEnd,
-					OrdersUsed:         0,
-				}
-				db.DB.Create(&usage)
-			}
-			
-			limit := activeSub.Plan.MonthlyOrderLimit
-			if usage.OrdersUsed >= limit {
-				if store.ExtraOrderLimit > 0 {
-					c.Locals("using_extra_order", true)
-				} else {
-					return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-						"success": false,
-						"message": "Store is temporarily unable to accept orders. Try again later.",
-					})
-				}
-			}
-
-			c.Locals("usage_id", usage.ID)
-		}
-	}
-
 	var orderReq requests.CreateOrderRequest
 
 	if err := c.Bind().Body(&orderReq); err != nil {
@@ -498,6 +365,28 @@ func PublicCreateOrder(c fiber.Ctx) error {
 			"success": false,
 			"message": "Total amount must be greater than 0",
 		})
+	}
+
+	if orderReq.PaymentMethod == "COD" && !store.CodEnabled {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Cash on Delivery (COD) is disabled for this store",
+		})
+	}
+
+	if orderReq.PaymentMethod == "UPI" {
+		if orderReq.PaymentReference == "" {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+				"success": false,
+				"message": "UPI Transaction ID / Reference number is required",
+			})
+		}
+		if orderReq.PaymentScreenshot == "" {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
+				"success": false,
+				"message": "Payment screenshot is required for UPI orders",
+			})
+		}
 	}
 
 	orderItemsJson, err := json.Marshal(orderReq.OrderItems)
@@ -553,12 +442,8 @@ func PublicCreateOrder(c fiber.Ctx) error {
 }
 
 func isStoreOnFreePlan(storeID uuid.UUID) bool {
-	var sub models.Subscription
-	err := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", storeID, "active", time.Now()).Order("created_at desc").First(&sub).Error
-	if err != nil {
-		return true // No active subscription found = Free plan
-	}
-	return sub.Plan.Name == "free"
+	// Free access to all functions
+	return false
 }
 
 func GetPublicOrderByOrderNumber(c fiber.Ctx) error {

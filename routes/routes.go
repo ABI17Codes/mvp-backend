@@ -15,7 +15,7 @@ func SetupRoutes(router fiber.Router) {
 	auth := router.Group("/auth")
 
 	auth.Use(limiter.New(limiter.Config{
-		Max:        100,
+		Max:        10,
 		Expiration: time.Minute,
 	}))
 

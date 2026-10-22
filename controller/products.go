@@ -5,8 +5,7 @@ import (
 	"backend/models"
 	"backend/requests"
 	"backend/services"
-	"strings"
-	"time"
+	"strings" 
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -48,21 +47,6 @@ func CreateProduct(c fiber.Ctx) error {
 			"success": false,
 			"message": "Store not found for this user",
 		})
-	}
-
-	// Product Limit Check
-	var activeSub models.Subscription
-	if errSub := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, models.SubscriptionActive, time.Now()).Order("created_at desc").First(&activeSub).Error; errSub == nil {
-		if activeSub.Plan.ProductLimit > 0 {
-			var activeProductsCount int64
-			db.DB.Model(&models.Product{}).Where("store_id = ? AND is_active = ?", store.ID, true).Count(&activeProductsCount)
-			if activeProductsCount >= int64(activeSub.Plan.ProductLimit) {
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"success": false,
-					"message": "Product limit reached for your current plan. Please upgrade to add more products.",
-				})
-			}
-		}
 	}
 
 	var productReq requests.CreateProductRequest

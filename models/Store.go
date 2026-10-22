@@ -26,7 +26,7 @@ type Store struct {
 	DeliveryCharge float64 `json:"deliveryCharge" gorm:"default:0"`
 	FreeDeliveryEnabled   bool    `json:"freeDeliveryEnabled" gorm:"default:false"`
 	FreeDeliveryThreshold float64 `json:"freeDeliveryThreshold" gorm:"default:0"`
-	CodEnabled            bool    `json:"codEnabled" gorm:"default:true"`
+	CodEnabled            bool    `json:"codEnabled" gorm:"default:false"`
 	UpiId   string    `json:"upiId"`
 	UpiName string    `json:"upiName"`
 

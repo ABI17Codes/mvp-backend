@@ -73,72 +73,38 @@ func GetMySubscription(c fiber.Ctx) error {
 	var activeProductsCount int64
 	db.DB.Model(&models.Product{}).Where("store_id = ? AND is_active = ?", store.ID, true).Count(&activeProductsCount)
 
-	var sub models.Subscription
-	err = db.DB.Preload("Plan").Where("store_id = ?", store.ID).Order("created_at desc").First(&sub).Error
-	if err == nil {
-		var usage models.SubscriptionUsage
-		now := time.Now()
-		db.DB.Where("subscription_id = ? AND billing_period_start <= ? AND billing_period_end >= ?", sub.ID, now, now).First(&usage)
-
-		var pendingAddon bool
-		var pendingReq models.Payment
-		if err := db.DB.Preload("Plan").Where("store_id = ? AND status = ?", store.ID, models.PaymentPending).First(&pendingReq).Error; err == nil {
-			name := strings.ToLower(pendingReq.Plan.Name)
-			if strings.Contains(name, "addon") || strings.Contains(name, "add-on") {
-				pendingAddon = true
-			}
-		}
-
-		extraLimit := store.ExtraOrderLimit
-
-		return c.JSON(fiber.Map{
-			"success": true,
-			"data": fiber.Map{
-				"id":           sub.ID,
-				"userID":       sub.UserID,
-				"storeID":      sub.StoreID,
-				"planID":       sub.PlanID,
-				"plan":         sub.Plan,
-				"status":       sub.Status,
-				"startDate":    sub.StartDate,
-				"expiryDate":   sub.ExpiryDate,
-				"pendingAddon": pendingAddon,
-				"usage": fiber.Map{
-					"products_active": activeProductsCount,
-					"orders_used":     usage.OrdersUsed,
-					"extra_orders":    extraLimit,
-				},
-			},
-		})
-	}
-
-	// Default to free plan if none exists
-	var freePlan models.Plan
-	if err := db.DB.Where("name = ?", "free").First(&freePlan).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"success": false,
-			"message": "Plans database is not seeded",
-		})
-	}
-
 	var ordersUsed int64
 	startOfMonth := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Local)
 	db.DB.Model(&models.Orders{}).Where("store_id = ? AND created_at >= ?", store.ID, startOfMonth).Count(&ordersUsed)
 
-	extraLimit := store.ExtraOrderLimit
+	// All functions are 100% free with unlimited access
+	unlimitedPlan := models.Plan{
+		Name:              "growth",
+		Description:       "Free Access (All Features Unlocked)",
+		Price:             0,
+		OfferPrice:        0,
+		IsOfferActive:     false,
+		ProductLimit:      0, // 0 = unlimited
+		MonthlyOrderLimit: 0, // 0 = unlimited
+		MaxStaff:          100,
+		IsActive:          true,
+	}
 
 	return c.JSON(fiber.Map{
 		"success": true,
 		"data": fiber.Map{
-			"status":     "active",
-			"plan_id":    freePlan.ID,
-			"plan":       freePlan,
-			"startDate":  store.CreatedAt,
-			"expiryDate": store.CreatedAt.AddDate(10, 0, 0), // Mock long duration
+			"status":       "active",
+			"planID":       unlimitedPlan.ID,
+			"plan":         unlimitedPlan,
+			"startDate":    store.CreatedAt,
+			"expiryDate":   store.CreatedAt.AddDate(100, 0, 0),
+			"isTrial":      false,
+			"pendingAddon": false,
+			"isFreeMode":   true,
 			"usage": fiber.Map{
 				"products_active": activeProductsCount,
 				"orders_used":     ordersUsed,
-				"extra_orders":    extraLimit,
+				"extra_orders":    999999,
 			},
 		},
 	})

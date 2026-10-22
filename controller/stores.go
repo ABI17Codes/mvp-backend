@@ -121,7 +121,7 @@ func CreateStore(c fiber.Ctx) error {
 		StoreTemplate: "classic",
 		UpiId:         storeReq.UpiId,
 		UpiName:       storeReq.UpiName,
-		CodEnabled:    true,
+		CodEnabled:    false,
 	}
 	if storeReq.CodEnabled != nil {
 		storeCreation.CodEnabled = *storeReq.CodEnabled
@@ -322,22 +322,6 @@ func UpdateStore(c fiber.Ctx) error {
 	store.PrivacyPolicy = strings.TrimSpace(storeReq.PrivacyPolicy)
 	store.TermsConditions = strings.TrimSpace(storeReq.TermsConditions)
 	if storeReq.StoreTemplate != "" {
-		if storeReq.StoreTemplate == "growth" {
-			var sub models.Subscription
-			err := db.DB.Preload("Plan").Where("store_id = ? AND status = ? AND expiry_date > ?", store.ID, "active", time.Now()).Order("created_at desc").First(&sub).Error
-			isOnFree := false
-			if err != nil {
-				isOnFree = true
-			} else if sub.Plan.Name == "free" {
-				isOnFree = true
-			}
-			if isOnFree {
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"success": false,
-					"message": "The Growth template is only available on premium plans. Please upgrade your subscription first.",
-				})
-			}
-		}
 		store.StoreTemplate = storeReq.StoreTemplate
 	}
 
@@ -656,19 +640,20 @@ func AdminDeleteStore(c fiber.Ctx) error {
 
 func populateStorePlan(store *models.Store) {
 	var sub models.Subscription
-	err := db.DB.Preload("Plan").Where("store_id = ?", store.ID).Order("created_at desc").First(&sub).Error
-	if err == nil {
+	err := db.DB.Preload("Plan").
+		Joins("JOIN plans ON plans.id = subscriptions.plan_id").
+		Where("subscriptions.store_id = ? AND LOWER(plans.name) NOT LIKE ? AND LOWER(plans.name) NOT LIKE ?", store.ID, "%addon%", "%add-on%").
+		Order("subscriptions.created_at desc").
+		First(&sub).Error
+	if err == nil && sub.Status == "active" && time.Now().Before(sub.ExpiryDate) {
 		store.SubscriptionStatus = sub.Status
 		store.SubscriptionExpiry = sub.ExpiryDate.Format(time.RFC3339)
-		if sub.Status == "active" {
-			store.Plan = sub.Plan.Name
-			store.PlanFeatures = sub.Plan.Features
-		} else {
-			store.Plan = "free"
-		}
+		store.Plan = sub.Plan.Name
+		store.PlanFeatures = sub.Plan.Features
 	} else {
-		store.SubscriptionStatus = "none"
-		store.SubscriptionExpiry = ""
-		store.Plan = "free"
+		// All functions open for free
+		store.SubscriptionStatus = "active"
+		store.SubscriptionExpiry = time.Now().AddDate(10, 0, 0).Format(time.RFC3339)
+		store.Plan = "growth"
 	}
 }

@@ -3,6 +3,7 @@ package services
 import (
 	"backend/models"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
@@ -21,6 +22,57 @@ type SMTPConfig struct {
 	From     string
 }
 
+// loginAuth implements the SMTP LOGIN authentication mechanism
+type loginAuth struct {
+	username, password string
+}
+
+func LoginAuth(username, password string) smtp.Auth {
+	return &loginAuth{username, password}
+}
+
+func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	return "LOGIN", []byte{}, nil
+}
+
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		challenge := strings.ToLower(strings.TrimSpace(string(fromServer)))
+		switch {
+		case strings.Contains(challenge, "username") || challenge == "vxnlcm5hbwu6":
+			return []byte(a.username), nil
+		case strings.Contains(challenge, "password") || challenge == "ugfzc3dvcmq6":
+			return []byte(a.password), nil
+		default:
+			if decoded, err := base64.StdEncoding.DecodeString(string(fromServer)); err == nil {
+				dStr := strings.ToLower(strings.TrimSpace(string(decoded)))
+				if strings.Contains(dStr, "username") {
+					return []byte(a.username), nil
+				}
+				if strings.Contains(dStr, "password") {
+					return []byte(a.password), nil
+				}
+			}
+			return nil, fmt.Errorf("unexpected challenge: %s", string(fromServer))
+		}
+	}
+	return nil, nil
+}
+
+// authenticateSMTP tries PLAIN auth first and falls back to LOGIN auth
+func authenticateSMTP(client *smtp.Client, cfg SMTPConfig) error {
+	plainAuth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+	if err := client.Auth(plainAuth); err == nil {
+		return nil
+	} else {
+		login := LoginAuth(cfg.Username, cfg.Password)
+		if errLogin := client.Auth(login); errLogin != nil {
+			return fmt.Errorf("SMTP auth failed (PLAIN: %v, LOGIN: %v)", err, errLogin)
+		}
+	}
+	return nil
+}
+
 // GetSMTPConfig loads SMTP settings from environment variables
 func GetSMTPConfig() SMTPConfig {
 	port := strings.TrimSpace(os.Getenv("SMTP_PORT"))
@@ -30,7 +82,7 @@ func GetSMTPConfig() SMTPConfig {
 
 	from := strings.TrimSpace(os.Getenv("SMTP_FROM"))
 	user := strings.TrimSpace(os.Getenv("SMTP_USER"))
-	if from == "" {
+	if from == "" && strings.Contains(user, "@") {
 		from = user
 	}
 
@@ -61,6 +113,11 @@ func SendHTMLEmail(to string, subject string, htmlBody string) error {
 		return nil
 	}
 
+	if cfg.From == "" || !strings.Contains(cfg.From, "@") {
+		log.Println("⚠️  [Mail] SMTP_FROM is not configured with a valid email address (e.g. your verified domain email). Skipping email.")
+		return nil
+	}
+
 	if to == "" {
 		log.Println("⚠️  [Mail] Destination email address is empty. Skipping email.")
 		return nil
@@ -84,7 +141,6 @@ func SendHTMLEmail(to string, subject string, htmlBody string) error {
 	message.WriteString("\r\n")
 	message.WriteString(htmlBody)
 
-	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: false,
 		ServerName:         cfg.Host,
@@ -104,8 +160,8 @@ func SendHTMLEmail(to string, subject string, htmlBody string) error {
 		}
 		defer client.Quit()
 
-		if err = client.Auth(auth); err != nil {
-			return fmt.Errorf("SMTP auth failed: %w", err)
+		if err = authenticateSMTP(client, cfg); err != nil {
+			return err
 		}
 
 		if err = client.Mail(cfg.From); err != nil {
@@ -148,8 +204,8 @@ func SendHTMLEmail(to string, subject string, htmlBody string) error {
 		}
 	}
 
-	if err = client.Auth(auth); err != nil {
-		return fmt.Errorf("SMTP authentication failed: %w", err)
+	if err = authenticateSMTP(client, cfg); err != nil {
+		return err
 	}
 
 	if err = client.Mail(cfg.From); err != nil {
