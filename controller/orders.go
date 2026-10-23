@@ -7,6 +7,7 @@ import (
 	"backend/services"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings" 
 
 	"github.com/gofiber/fiber/v3"
@@ -14,6 +15,82 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
+
+type OrderCartItem struct {
+	ProductID   string `json:"productID"`
+	ProductName string `json:"productName"`
+	Price       int    `json:"price"`
+	Quantity    int    `json:"quantity"`
+	Image       string `json:"image,omitempty"`
+}
+
+func calculateOrderTotals(store *models.Store, rawOrderItems interface{}) ([]byte, int, int, int, error) {
+	if rawOrderItems == nil {
+		return nil, 0, 0, 0, fmt.Errorf("Order items are required")
+	}
+
+	rawBytes, err := json.Marshal(rawOrderItems)
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("Invalid cart items format")
+	}
+
+	var items []OrderCartItem
+	if err := json.Unmarshal(rawBytes, &items); err != nil || len(items) == 0 {
+		return nil, 0, 0, 0, fmt.Errorf("At least one product item is required")
+	}
+
+	var verifiedItems []OrderCartItem
+	calculatedSubtotal := 0
+
+	for _, item := range items {
+		if item.Quantity <= 0 {
+			item.Quantity = 1
+		}
+
+		unitPrice := item.Price
+
+		if item.ProductID != "" && item.ProductID != "00000000-0000-0000-0000-000000000000" {
+			prodUUID, err := uuid.Parse(item.ProductID)
+			if err == nil {
+				var prod models.Product
+				if err := db.DB.Where("id = ? AND store_id = ?", prodUUID, store.ID).First(&prod).Error; err == nil {
+					unitPrice = prod.Price
+					if prod.OfferPrice > 0 && prod.OfferPrice < prod.Price {
+						unitPrice = prod.OfferPrice
+					}
+					item.ProductName = prod.Name
+					if len(prod.Images) > 0 && item.Image == "" {
+						item.Image = prod.Images[0]
+					}
+				}
+			}
+		}
+
+		if unitPrice < 0 {
+			unitPrice = 0
+		}
+		item.Price = unitPrice
+		calculatedSubtotal += unitPrice * item.Quantity
+		verifiedItems = append(verifiedItems, item)
+	}
+
+	calculatedDeliveryCharge := int(store.DeliveryCharge)
+	if store.FreeDeliveryEnabled && store.FreeDeliveryThreshold > 0 && float64(calculatedSubtotal) >= store.FreeDeliveryThreshold {
+		calculatedDeliveryCharge = 0
+	}
+
+	calculatedTotalAmount := calculatedSubtotal + calculatedDeliveryCharge
+	if calculatedTotalAmount <= 0 {
+		return nil, 0, 0, 0, fmt.Errorf("Total order amount must be greater than 0")
+	}
+
+	verifiedJSON, err := json.Marshal(verifiedItems)
+	if err != nil {
+		return nil, 0, 0, 0, fmt.Errorf("Failed to process order items")
+	}
+
+	return verifiedJSON, calculatedSubtotal, calculatedDeliveryCharge, calculatedTotalAmount, nil
+}
 
 func CreateOrder(c fiber.Ctx) error {
 	storeIDParam := c.Params("storeID")
@@ -86,19 +163,12 @@ func CreateOrder(c fiber.Ctx) error {
 		})
 	}
 
-	if orderReq.TotalAmount <= 0 {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
-			"success": false,
-			"message": "Total amount must be greater than 0",
-		})
-	}
-
-	// Serialize OrderItems
-	orderItemsJson, err := json.Marshal(orderReq.OrderItems)
+	// Calculate product prices, delivery charge, and totals on backend
+	orderItemsJson, calcSubtotal, calcDeliveryCharge, calcTotal, err := calculateOrderTotals(&store, orderReq.OrderItems)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Invalid cart items format",
+			"message": err.Error(),
 		})
 	}
 
@@ -113,9 +183,9 @@ func CreateOrder(c fiber.Ctx) error {
 		Number:            orderReq.Number,
 		Address:           orderReq.Address,
 		OrderItems:        datatypes.JSON(orderItemsJson),
-		Subtotal:          orderReq.Subtotal,
-		DeliveryCharge:    orderReq.DeliveryCharge,
-		TotalAmount:       orderReq.TotalAmount,
+		Subtotal:          calcSubtotal,
+		DeliveryCharge:    calcDeliveryCharge,
+		TotalAmount:       calcTotal,
 		Note:              orderReq.Note,
 		Status:            "Pending Payment",
 		PaymentMethod:     orderReq.PaymentMethod,
@@ -360,12 +430,14 @@ func PublicCreateOrder(c fiber.Ctx) error {
 		})
 	}
 
-	if orderReq.TotalAmount <= 0 {
+	phoneDigits := regexp.MustCompile(`\D`).ReplaceAllString(orderReq.Number, "")
+	if len(phoneDigits) != 10 {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 			"success": false,
-			"message": "Total amount must be greater than 0",
+			"message": "Phone number must be exactly 10 digits",
 		})
 	}
+	orderReq.Number = phoneDigits
 
 	if orderReq.PaymentMethod == "COD" && !store.CodEnabled {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -387,13 +459,23 @@ func PublicCreateOrder(c fiber.Ctx) error {
 				"message": "Payment screenshot is required for UPI orders",
 			})
 		}
+
+		// Prevent duplicate submission with same transaction reference
+		var existingOrder models.Orders
+		if db.DB.Where("store_id = ? AND payment_reference = ? AND status <> ?", storeID, orderReq.PaymentReference, "Cancelled").First(&existingOrder).RowsAffected > 0 {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"success": false,
+				"message": "An order with this UPI transaction reference already exists. Please verify your reference number.",
+			})
+		}
 	}
 
-	orderItemsJson, err := json.Marshal(orderReq.OrderItems)
+	// Calculate product prices, delivery charge, and totals on backend
+	orderItemsJson, calcSubtotal, calcDeliveryCharge, calcTotal, err := calculateOrderTotals(&store, orderReq.OrderItems)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Invalid cart items format",
+			"message": err.Error(),
 		})
 	}
 
@@ -406,9 +488,9 @@ func PublicCreateOrder(c fiber.Ctx) error {
 		Number:            orderReq.Number,
 		Address:           orderReq.Address,
 		OrderItems:        datatypes.JSON(orderItemsJson),
-		Subtotal:          orderReq.Subtotal,
-		DeliveryCharge:    orderReq.DeliveryCharge,
-		TotalAmount:       orderReq.TotalAmount,
+		Subtotal:          calcSubtotal,
+		DeliveryCharge:    calcDeliveryCharge,
+		TotalAmount:       calcTotal,
 		Note:              orderReq.Note,
 		Status:            "Pending Payment",
 		PaymentMethod:     orderReq.PaymentMethod,
@@ -462,6 +544,9 @@ func GetPublicOrderByOrderNumber(c fiber.Ctx) error {
 			"message": "Order not found",
 		})
 	}
+
+	// Redact sensitive customer payment screenshot from public tracking endpoint
+	order.PaymentScreenshot = ""
 
 	var store models.Store
 	if err := db.DB.Where("id = ?", order.StoreID).First(&store).Error; err == nil {

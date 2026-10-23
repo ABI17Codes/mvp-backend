@@ -207,7 +207,10 @@ func PublicUploadImage(c fiber.Ctx) error {
 		})
 	}
 
-	bucketName := os.Getenv("R2_BUCKET")
+	bucketName := os.Getenv("R2_BUCKET_NAME")
+	if bucketName == "" {
+		bucketName = os.Getenv("R2_BUCKET")
+	}
 	accessKeyID := os.Getenv("R2_ACCESS_KEY_ID")
 	secretAccessKey := os.Getenv("R2_SECRET_ACCESS_KEY")
 
@@ -263,7 +266,7 @@ func PublicUploadImage(c fiber.Ctx) error {
 	if uploadErr != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"success": false,
-			"message": "R2 upload failed",
+			"message": fmt.Sprintf("Cloud upload failed: %v", uploadErr),
 		})
 	}
 
@@ -281,4 +284,3 @@ func PublicUploadImage(c fiber.Ctx) error {
 		"url":     publicURL,
 	})
 }
-

@@ -5,6 +5,7 @@ import (
 	"backend/models"
 	"backend/requests"
 	"backend/services"
+	"fmt"
 	"strings" 
 
 	"github.com/gofiber/fiber/v3"
@@ -47,6 +48,37 @@ func CreateProduct(c fiber.Ctx) error {
 			"success": false,
 			"message": "Store not found for this user",
 		})
+	}
+
+	// Product limit enforcement based on store subscription / plan
+	var sub models.Subscription
+	errSub := db.DB.Preload("Plan").
+		Joins("JOIN plans ON plans.id = subscriptions.plan_id").
+		Where("subscriptions.store_id = ? AND subscriptions.status = ?", storeID, models.SubscriptionActive).
+		Order("subscriptions.created_at desc").
+		First(&sub).Error
+
+	var productLimit int = 0
+	if errSub == nil && sub.Plan.ProductLimit > 0 {
+		productLimit = sub.Plan.ProductLimit
+	} else {
+		var basicPlan models.Plan
+		if err := db.DB.Where("LOWER(name) = ? OR price = ?", "basic", 99).First(&basicPlan).Error; err == nil && basicPlan.ProductLimit > 0 {
+			productLimit = basicPlan.ProductLimit
+		} else {
+			productLimit = 50 // Standard plan default limit
+		}
+	}
+
+	if productLimit > 0 {
+		var currentProductCount int64
+		db.DB.Model(&models.Product{}).Where("store_id = ?", storeID).Count(&currentProductCount)
+		if currentProductCount >= int64(productLimit) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"success": false,
+				"message": fmt.Sprintf("Product limit reached (%d products) for your current plan. Please upgrade your plan to add more products.", productLimit),
+			})
+		}
 	}
 
 	var productReq requests.CreateProductRequest
