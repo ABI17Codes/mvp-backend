@@ -19,7 +19,7 @@ import (
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
+		log.Println("Note: .env file not found, loading environment variables from system")
 	}
 
 	db.ConnectDB()
@@ -117,10 +117,10 @@ func main() {
 	// })
 
 	// Serve uploaded images as static files
-	app.Get("/uploads/*", func(c fiber.Ctx) error {
-		filePath := "." + c.Path()
-		return c.SendFile(filePath)
-	})
+	// app.Get("/uploads/*", func(c fiber.Ctx) error {
+	// 	filePath := "." + c.Path()
+	// 	return c.SendFile(filePath)
+	// })
 
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.SendString("Server running!")
@@ -129,8 +129,11 @@ func main() {
 
 
 	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
 
-	if port != "" && port[0] != ':' {
+	if port[0] != ':' {
 		port = ":" + port
 	}
 
